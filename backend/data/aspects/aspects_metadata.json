@@ -1,0 +1,12 @@
+{
+  "created_at": "2025-12-18T14:21:37.492423",
+  "marketplace_id": "0",
+  "cached_categories": {
+    "15709": {
+      "fetched_at": "2025-12-18T14:26:34.476447",
+      "cache_file": "by_category/15709.json"
+    }
+  },
+  "last_updated": "2025-12-18T14:26:34.476454",
+  "total_cached": 1
+}

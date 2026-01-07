@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Results Viewer - Listing Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 25px 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+            color: #1a1a1a;
+        }
+
+        .timestamp {
+            color: #666;
+            font-size: 13px;
+        }
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .summary-card {
+            background: white;
+            padding: 18px;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        .summary-card h3 {
+            font-size: 11px;
+            color: #666;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            font-weight: 600;
+        }
+
+        .summary-card .value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #1a1a1a;
+        }
+
+        .summary-card .subvalue {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        .file-input-area {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .file-input-area input {
+            display: none;
+        }
+
+        .file-input-label {
+            display: inline-block;
+            padding: 10px 24px;
+            background: #007bff;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        .file-input-label:hover {
+            background: #0056b3;
+        }
+
+        .file-name {
+            margin-top: 12px;
+            color: #666;
+            font-size: 13px;
+        }
+
+        .test-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .test-header {
+            padding: 16px 20px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .test-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+
+        .test-meta {
+            display: flex;
+            gap: 20px;
+            margin-top: 6px;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .test-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-passed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-error {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .results-table th {
+            background: #f8f9fa;
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #495057;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .results-table td {
+            padding: 14px 16px;
+            font-size: 13px;
+            border-bottom: 1px solid #f0f0f0;
+            vertical-align: middle;
+        }
+
+        .results-table tbody tr {
+            transition: background 0.15s;
+            cursor: pointer;
+        }
+
+        .results-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .results-table tbody tr.expanded {
+            background: #f8f9fa;
+        }
+
+        .field-name-cell {
+            font-weight: 600;
+            color: #1a1a1a;
+            width: 140px;
+        }
+
+        .expected-cell {
+            color: #495057;
+            max-width: 300px;
+        }
+
+        .actual-cell {
+            color: #495057;
+            max-width: 300px;
+        }
+
+        .score-cell {
+            font-weight: 700;
+            font-size: 14px;
+            width: 80px;
+            text-align: center;
+        }
+
+        .status-cell {
+            width: 50px;
+            text-align: center;
+            font-size: 18px;
+        }
+
+        .truncated {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .row-high {
+            border-left: 4px solid #28a745;
+        }
+
+        .row-medium {
+            border-left: 4px solid #ffc107;
+        }
+
+        .row-low {
+            border-left: 4px solid #dc3545;
+        }
+
+        .score-high {
+            color: #28a745;
+        }
+
+        .score-medium {
+            color: #f57c00;
+        }
+
+        .score-low {
+            color: #dc3545;
+        }
+
+        .expanded-row {
+            display: none;
+        }
+
+        .expanded-row.show {
+            display: table-row;
+        }
+
+        .expanded-row td {
+            padding: 16px 20px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .expanded-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .expanded-section {
+            background: white;
+            padding: 14px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+
+        .expanded-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #6c757d;
+            margin-bottom: 8px;
+        }
+
+        .expanded-value {
+            font-size: 13px;
+            line-height: 1.6;
+            color: #212529;
+            word-wrap: break-word;
+        }
+
+        .no-data {
+            background: white;
+            padding: 60px;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            text-align: center;
+            color: #666;
+        }
+
+        .expand-icon {
+            display: inline-block;
+            margin-left: 8px;
+            font-size: 10px;
+            color: #6c757d;
+            transition: transform 0.2s;
+        }
+
+        tr.expanded .expand-icon {
+            transform: rotate(180deg);
+        }
+
+        @media (max-width: 768px) {
+            .summary {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .results-table th,
+            .results-table td {
+                padding: 10px 12px;
+                font-size: 12px;
+            }
+
+            .field-name-cell {
+                width: 100px;
+            }
+
+            .expected-cell,
+            .actual-cell {
+                max-width: 150px;
+            }
+
+            .expanded-content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Test Results Viewer</h1>
+            <p class="timestamp" id="lastUpdated">Load a results file to begin</p>
+        </header>
+
+        <div class="file-input-area">
+            <label for="fileInput" class="file-input-label">
+                Load Test Results (JSON)
+            </label>
+            <input type="file" id="fileInput" accept=".json">
+            <div class="file-name" id="fileName"></div>
+        </div>
+
+        <div id="content"></div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const fileName = document.getElementById('fileName');
+        const content = document.getElementById('content');
+        const lastUpdated = document.getElementById('lastUpdated');
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            fileName.textContent = `Loaded: ${file.name}`;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = JSON.parse(event.target.result);
+                    renderResults(data);
+                } catch (error) {
+                    content.innerHTML = `
+                        <div class="no-data">
+                            <h2>Error Loading File</h2>
+                            <p>${error.message}</p>
+                        </div>
+                    `;
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function toggleRow(testId, fieldName) {
+            const expandedRow = document.getElementById(`expanded-${testId}-${fieldName}`);
+            const mainRow = document.getElementById(`row-${testId}-${fieldName}`);
+
+            if (expandedRow.classList.contains('show')) {
+                expandedRow.classList.remove('show');
+                mainRow.classList.remove('expanded');
+            } else {
+                expandedRow.classList.add('show');
+                mainRow.classList.add('expanded');
+            }
+        }
+
+        function renderResults(data) {
+            const timestamp = new Date().toLocaleString();
+            lastUpdated.textContent = `Last loaded: ${timestamp}`;
+
+            if (!data.results || data.results.length === 0) {
+                content.innerHTML = `
+                    <div class="no-data">
+                        <h2>No Test Results Found</h2>
+                        <p>The loaded file contains no test results.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Calculate overall statistics
+            const totalTests = data.results.length;
+            const passed = data.results.filter(r => r.status === 'passed').length;
+            const failed = data.results.filter(r => r.status === 'failed').length;
+            const errors = data.results.filter(r => r.status === 'error').length;
+            const avgScore = data.results.reduce((sum, r) => sum + r.overall_score, 0) / totalTests;
+            const passRate = (passed / totalTests * 100).toFixed(1);
+            const totalDuration = data.total_duration_seconds || data.results.reduce((sum, r) => sum + r.duration_seconds, 0);
+
+            // Render compact summary
+            let html = `
+                <div class="summary">
+                    <div class="summary-card">
+                        <h3>Total Tests</h3>
+                        <div class="value">${totalTests}</div>
+                        <div class="subvalue">${data.batches || 'N/A'} batches</div>
+                    </div>
+                    <div class="summary-card">
+                        <h3>Pass Rate</h3>
+                        <div class="value">${passRate}%</div>
+                        <div class="subvalue">${passed} passed, ${failed} failed</div>
+                    </div>
+                    <div class="summary-card">
+                        <h3>Avg Score</h3>
+                        <div class="value">${avgScore.toFixed(1)}%</div>
+                        <div class="subvalue">All fields</div>
+                    </div>
+                    <div class="summary-card">
+                        <h3>Duration</h3>
+                        <div class="value">${(totalDuration / 60).toFixed(1)}m</div>
+                        <div class="subvalue">${totalDuration.toFixed(0)}s total</div>
+                    </div>
+                </div>
+            `;
+
+            // Sort results by test_id descending (latest first)
+            const sortedResults = [...data.results].sort((a, b) => b.test_id - a.test_id);
+
+            // Render each test as a card with table
+            sortedResults.forEach(result => {
+                const statusClass = result.status === 'passed' ? 'status-passed' :
+                                   result.status === 'failed' ? 'status-failed' : 'status-error';
+
+                html += `
+                    <div class="test-card">
+                        <div class="test-header">
+                            <div>
+                                <div class="test-title">Test #${result.test_id}: ${result.image_path}</div>
+                                <div class="test-meta">
+                                    <span>Overall: ${result.overall_score.toFixed(1)}%</span>
+                                    <span>Duration: ${result.duration_seconds.toFixed(1)}s</span>
+                                </div>
+                            </div>
+                            <span class="test-status ${statusClass}">
+                                ${result.status.toUpperCase()}
+                            </span>
+                        </div>
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>Field</th>
+                                    <th>Expected</th>
+                                    <th>Actual</th>
+                                    <th>Score</th>
+                                    <th>Pass</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                // Render each field as a table row
+                if (result.analysis) {
+                    Object.entries(result.analysis).forEach(([field, data]) => {
+                        const score = data.score || 0;
+                        const scoreClass = score >= 80 ? 'score-high' : score >= 60 ? 'score-medium' : 'score-low';
+                        const rowClass = score >= 80 ? 'row-high' : score >= 60 ? 'row-medium' : 'row-low';
+                        const passIcon = data.passed ? '✓' : '✗';
+                        const expectedTrunc = truncateText(formatValue(data.expected), 50);
+                        const actualTrunc = truncateText(formatValue(data.actual), 50);
+
+                        html += `
+                            <tr id="row-${result.test_id}-${field}" class="${rowClass}" onclick="toggleRow(${result.test_id}, '${field}')">
+                                <td class="field-name-cell">
+                                    ${field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                    <span class="expand-icon">▼</span>
+                                </td>
+                                <td class="expected-cell truncated">${expectedTrunc}</td>
+                                <td class="actual-cell truncated">${actualTrunc}</td>
+                                <td class="score-cell ${scoreClass}">${score.toFixed(1)}%</td>
+                                <td class="status-cell">${passIcon}</td>
+                            </tr>
+                            <tr id="expanded-${result.test_id}-${field}" class="expanded-row">
+                                <td colspan="5">
+                                    <div class="expanded-content">
+                                        <div class="expanded-section">
+                                            <div class="expanded-label">Expected</div>
+                                            <div class="expanded-value">${formatValue(data.expected)}</div>
+                                        </div>
+                                        <div class="expanded-section">
+                                            <div class="expanded-label">Actual</div>
+                                            <div class="expanded-value">${formatValue(data.actual)}</div>
+                                        </div>
+                                        ${data.details ? `
+                                            <div class="expanded-section" style="grid-column: 1/-1;">
+                                                <div class="expanded-label">Details</div>
+                                                <div class="expanded-value">${data.details}</div>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                }
+
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            });
+
+            content.innerHTML = html;
+        }
+
+        function truncateText(text, maxLength) {
+            if (text.length <= maxLength) return text;
+            return text.substring(0, maxLength) + '...';
+        }
+
+        function formatValue(value) {
+            if (value === null || value === undefined) {
+                return '<em>null</em>';
+            }
+            if (Array.isArray(value)) {
+                return value.join(', ');
+            }
+            if (typeof value === 'object') {
+                return JSON.stringify(value, null, 2);
+            }
+            return String(value);
+        }
+
+        // Auto-load batched_results.json if available
+        fetch('batched_results.json')
+            .then(response => response.json())
+            .then(data => {
+                fileName.textContent = 'Auto-loaded: batched_results.json';
+                renderResults(data);
+            })
+            .catch(() => {
+                // File doesn't exist or can't be loaded, that's okay
+                content.innerHTML = `
+                    <div class="no-data">
+                        <h2>No Results Loaded</h2>
+                        <p>Click the button above to load a test results JSON file.</p>
+                        <p style="margin-top: 10px; font-size: 12px;">The file should be in the same directory as this HTML file for auto-loading.</p>
+                    </div>
+                `;
+            });
+    </script>
+</body>
+</html>

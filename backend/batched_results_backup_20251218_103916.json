@@ -1,0 +1,266 @@
+{
+  "total_tests": 10,
+  "batches": 5,
+  "total_duration_seconds": 12487.315937042236,
+  "results": [
+    {
+      "test_id": 1,
+      "image_path": "Dyson_Vacuum.JPG",
+      "status": "failed",
+      "overall_score": 62.32,
+      "duration_seconds": 57.67,
+      "analysis": {
+        "product_name": {
+          "expected": "Dyson Ball Multi Floor Vacuum",
+          "actual": "Dyson DC25 Multi Floor Upright Vacuum Cleaner",
+          "score": 70.27,
+          "passed": false,
+          "details": "Fuzzy match score: 70.27027027027026% (threshold: 80.0%)"
+        },
+        "title": {
+          "expected": "Dyson Ball Multi Floor Vacuum Cleaner",
+          "actual": "Dyson DC25 Multi Floor Upright Vacuum Ball Technology Yellow HEPA Filter",
+          "score": 62.22,
+          "passed": false,
+          "details": "Partial: 67.56756756756756%, Token: 56.88073394495412%, Avg: 62.2% (threshold: 70.0%)"
+        },
+        "description": {
+          "expected": [
+            "upright",
+            "cyclone",
+            "HEPA",
+            "bagless",
+            "powerful suction"
+          ],
+          "actual": [
+            "upright",
+            "cyclone",
+            "HEPA",
+            "bagless",
+            "powerful suction"
+          ],
+          "score": 100.0,
+          "passed": true,
+          "details": "Found 5/5 keywords"
+        },
+        "category": {
+          "expected": "Home & Garden",
+          "actual": "Home & Garden > Household Appliances > Vacuum Cleaners",
+          "score": 38.81,
+          "passed": false,
+          "details": "Fuzzy match: 38.80597014925373%"
+        },
+        "condition": {
+          "expected": "Used - Good",
+          "actual": "Used - Good",
+          "score": 100.0,
+          "passed": true,
+          "details": "Exact match"
+        },
+        "price": {
+          "expected": [
+            140.0,
+            180.0
+          ],
+          "actual": 89.99,
+          "score": 0.0,
+          "passed": false,
+          "details": "Too low by $50.01 (35.7%). Confidence: 78%"
+        }
+      }
+    },
+    {
+      "test_id": 2,
+      "image_path": "Aja.JPG",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 9.34,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to analyze image 1: API rate limit exceeded. Please wait a moment and try again."
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "Aja2.JPG",
+      "status": "failed",
+      "overall_score": 38.86,
+      "duration_seconds": 57.63,
+      "analysis": {
+        "product_name": {
+          "expected": "A'ja Wilson Shoes",
+          "actual": "Nike Air Max Koko Sandal",
+          "score": 34.15,
+          "passed": false,
+          "details": "Fuzzy match score: 34.14634146341463% (threshold: 80.0%)"
+        },
+        "title": {
+          "expected": "Nike A'ja Wilson Basketball Shoes Size 10",
+          "actual": "Nike Air Max Koko Sandals Pink Red Slip-On Women's Foam Cushion New w/ Box",
+          "score": 41.95,
+          "passed": false,
+          "details": "Partial: 47.36842105263158%, Token: 36.52173913043478%, Avg: 41.9% (threshold: 70.0%)"
+        },
+        "description": {
+          "expected": [
+            "basketball",
+            "athletic",
+            "signature",
+            "women",
+            "shoes",
+            "size 10"
+          ],
+          "actual": [
+            "athletic",
+            "signature",
+            "women"
+          ],
+          "score": 50.0,
+          "passed": false,
+          "details": "Found 3/6 keywords. Missing: basketball, shoes, size 10"
+        },
+        "category": {
+          "expected": "Athletic Shoes",
+          "actual": "Women's Sandals",
+          "score": 27.59,
+          "passed": false,
+          "details": "Fuzzy match: 27.586206896551722%"
+        },
+        "condition": {
+          "expected": "Used - Good",
+          "actual": "New",
+          "score": 0.0,
+          "passed": false,
+          "details": "Mismatch"
+        },
+        "price": {
+          "expected": [
+            80.0,
+            120.0
+          ],
+          "actual": 125.0,
+          "score": 80.0,
+          "passed": false,
+          "details": "Too high by $5.00 (4.2%). Confidence: 82%"
+        }
+      }
+    },
+    {
+      "test_id": 2,
+      "image_path": "Helmet5.png",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 4.41,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to analyze image 1: API rate limit exceeded. Please wait a moment and try again."
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "Titleist.png",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 9869.53,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to analyze image 1: Failed to analyze image: Request timed out."
+        }
+      }
+    },
+    {
+      "test_id": 2,
+      "image_path": "airpods_pro.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 2238.83,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "API rate limit exceeded. Please wait a moment and try again."
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "instant_pot.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 2.8,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to analyze image 1: API rate limit exceeded. Please wait a moment and try again."
+        }
+      }
+    },
+    {
+      "test_id": 2,
+      "image_path": "kindle_paperwhite.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 2.06,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to analyze image 1: API rate limit exceeded. Please wait a moment and try again."
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "lego_set.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 2.36,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to analyze image 1: API rate limit exceeded. Please wait a moment and try again."
+        }
+      }
+    },
+    {
+      "test_id": 2,
+      "image_path": "ps5_controller.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 2.21,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to analyze image 1: API rate limit exceeded. Please wait a moment and try again."
+        }
+      }
+    }
+  ]
+}

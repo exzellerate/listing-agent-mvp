@@ -1,0 +1,181 @@
+{
+  "summary": {
+    "total_tests": 10,
+    "passed": 0,
+    "failed": 10,
+    "pass_rate": 0.0,
+    "avg_score": 0.0,
+    "total_duration_seconds": 0.0,
+    "field_accuracy": {
+      "product_name": 0.0,
+      "title": 0.0,
+      "description": 0.0,
+      "category": 0.0,
+      "condition": 0.0,
+      "price": 0.0
+    },
+    "failed_tests": []
+  },
+  "results": [
+    {
+      "test_id": 1,
+      "image_path": "test_images/dyson_vacuum.jpg",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 0.0,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Image not found: test_images/test_images/dyson_vacuum.jpg"
+        }
+      }
+    },
+    {
+      "test_id": 2,
+      "image_path": "test_images/iphone_13.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 0.0,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Image not found: test_images/test_images/iphone_13.webp"
+        }
+      }
+    },
+    {
+      "test_id": 3,
+      "image_path": "test_images/nike_shoes.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 0.0,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Image not found: test_images/test_images/nike_shoes.webp"
+        }
+      }
+    },
+    {
+      "test_id": 4,
+      "image_path": "test_images/macbook_pro.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 0.0,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Image not found: test_images/test_images/macbook_pro.webp"
+        }
+      }
+    },
+    {
+      "test_id": 5,
+      "image_path": "test_images/kindle_paperwhite.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 0.0,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Image not found: test_images/test_images/kindle_paperwhite.webp"
+        }
+      }
+    },
+    {
+      "test_id": 6,
+      "image_path": "test_images/instant_pot.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 0.0,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Image not found: test_images/test_images/instant_pot.webp"
+        }
+      }
+    },
+    {
+      "test_id": 7,
+      "image_path": "test_images/fitbit_watch.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 0.0,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Image not found: test_images/test_images/fitbit_watch.webp"
+        }
+      }
+    },
+    {
+      "test_id": 8,
+      "image_path": "test_images/ps5_controller.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 0.0,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Image not found: test_images/test_images/ps5_controller.webp"
+        }
+      }
+    },
+    {
+      "test_id": 9,
+      "image_path": "test_images/lego_set.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 0.0,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Image not found: test_images/test_images/lego_set.webp"
+        }
+      }
+    },
+    {
+      "test_id": 10,
+      "image_path": "test_images/airpods_pro.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 0.0,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Image not found: test_images/test_images/airpods_pro.webp"
+        }
+      }
+    }
+  ]
+}

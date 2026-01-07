@@ -1,0 +1,11 @@
+image_path,expected_name,expected_brand,expected_category,expected_condition,expected_title,expected_description_keywords,expected_price_min,expected_price_max,platform,notes
+Dyson_Vacuum.JPG,Dyson Ball Multi Floor Vacuum,Dyson,Home & Garden,Used - Good,Dyson Ball Multi Floor Vacuum Cleaner,"upright,cyclone,HEPA,bagless,powerful suction",140.00,180.00,ebay,DC25 model with orange and grey colors
+Aja.JPG,A'ja Wilson Shoes,Nike,Athletic Shoes,Used - Good,Nike A'ja Wilson Basketball Shoes,"basketball,athletic,signature,women,shoes",80.00,120.00,ebay,A'ja Wilson signature basketball shoes
+Aja2.JPG,A'ja Wilson Shoes,Nike,Athletic Shoes,Used - Good,Nike A'ja Wilson Basketball Shoes Size 10,"basketball,athletic,signature,women,shoes,size 10",80.00,120.00,ebay,A'ja Wilson signature basketball shoes size 10
+Helmet5.png,Motorcycle Helmet,Unknown,Sporting Goods,Used - Good,Motorcycle Helmet with Visor,"motorcycle,helmet,safety,protection,visor",50.00,100.00,ebay,Motorcycle safety helmet
+Titleist.png,Titleist Golf Balls,Titleist,Sporting Goods,Used - Good,Titleist Pro V1 Golf Balls,"golf,balls,pro v1,sports,titleist",30.00,50.00,ebay,Premium golf balls
+airpods_pro.webp,Apple AirPods Pro,Apple,Headphones,Used - Like New,Apple AirPods Pro with MagSafe Charging Case,"active noise cancellation,transparency mode,spatial audio,wireless,H1 chip",150.00,200.00,ebay,2nd generation with minimal use
+instant_pot.webp,Instant Pot Duo,Instant Pot,Small Kitchen Appliances,Used - Good,Instant Pot Duo 7-in-1 Pressure Cooker 6 Quart,"pressure cooker,slow cooker,rice cooker,steamer,multi-function",50.00,75.00,ebay,6 quart capacity with all accessories
+kindle_paperwhite.webp,Kindle Paperwhite,Amazon,eBook Readers,Used - Like New,Amazon Kindle Paperwhite E-Reader 8GB,"e-ink display,waterproof,backlight,long battery,8GB storage",80.00,110.00,ebay,11th generation with no scratches
+lego_set.webp,LEGO Star Wars Millennium Falcon,LEGO,Building Toys,Used - Good,LEGO Star Wars Millennium Falcon Set 75192,"collector,ultimate,7500 pieces,display model,Star Wars",650.00,850.00,ebay,Complete with all pieces and instructions
+ps5_controller.webp,PlayStation 5 DualSense Controller,Sony,Video Game Controllers,New,Sony PS5 DualSense Wireless Controller - White,"haptic feedback,adaptive triggers,wireless,rechargeable,PS5",55.00,75.00,ebay,Brand new sealed in box

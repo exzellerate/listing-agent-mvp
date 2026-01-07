@@ -1,0 +1,411 @@
+{
+  "total_tests": 10,
+  "batches": 10,
+  "total_duration_seconds": 3593.423371076584,
+  "results": [
+    {
+      "test_id": 1,
+      "image_path": "Dyson_Vacuum.JPG",
+      "status": "failed",
+      "overall_score": 68.41,
+      "duration_seconds": 59.73,
+      "analysis": {
+        "product_name": {
+          "expected": "Dyson Ball Multi Floor Vacuum",
+          "actual": "Dyson DC25 Multi Floor Ball Vacuum Cleaner",
+          "score": 81.69,
+          "passed": true,
+          "details": "Fuzzy match score: 81.69014084507043%"
+        },
+        "title": {
+          "expected": "Dyson Ball Multi Floor Vacuum Cleaner",
+          "actual": "Dyson DC25 Ball Multi Floor Upright Vacuum Cleaner Yellow HEPA Used Good",
+          "score": 73.13,
+          "passed": true,
+          "details": "Partial: 78.37837837837837%, Token: 67.88990825688073%, Avg: 73.1%"
+        },
+        "description": {
+          "expected": [
+            "upright",
+            "cyclone",
+            "HEPA",
+            "bagless",
+            "powerful suction"
+          ],
+          "actual": [
+            "upright",
+            "cyclone",
+            "HEPA",
+            "powerful suction"
+          ],
+          "score": 80.0,
+          "passed": true,
+          "details": "Found 4/5 keywords. Missing: bagless"
+        },
+        "category": {
+          "expected": "Home & Garden",
+          "actual": "Vacuum Cleaner",
+          "score": 29.63,
+          "passed": false,
+          "details": "Fuzzy match: 29.629629629629626%"
+        },
+        "condition": {
+          "expected": "Used - Good",
+          "actual": "Used - Good",
+          "score": 100.0,
+          "passed": true,
+          "details": "Exact match"
+        },
+        "price": {
+          "expected": [
+            140.0,
+            180.0
+          ],
+          "actual": 109.99,
+          "score": 40.0,
+          "passed": false,
+          "details": "Too low by $30.01 (21.4%). Confidence: 85%"
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "Aja.JPG",
+      "status": "failed",
+      "overall_score": 49.78,
+      "duration_seconds": 56.74,
+      "analysis": {
+        "product_name": {
+          "expected": "A'ja Wilson Shoes",
+          "actual": "Athletic Propulsion Labs (APL) TechLoom Pro - Team Pink",
+          "score": 30.56,
+          "passed": false,
+          "details": "Fuzzy match score: 30.555555555555557% (threshold: 80.0%)"
+        },
+        "title": {
+          "expected": "Nike A'ja Wilson Basketball Shoes",
+          "actual": "APL TechLoom Pro Women's Training Shoes Team Pink Size 10 FZ8605-601 New",
+          "score": 38.35,
+          "passed": false,
+          "details": "Partial: 42.42424242424242%, Token: 34.285714285714285%, Avg: 38.4% (threshold: 70.0%)"
+        },
+        "description": {
+          "expected": [
+            "basketball",
+            "athletic",
+            "signature",
+            "women",
+            "shoes"
+          ],
+          "actual": [
+            "athletic",
+            "signature",
+            "women",
+            "shoes"
+          ],
+          "score": 80.0,
+          "passed": true,
+          "details": "Found 4/5 keywords. Missing: basketball"
+        },
+        "category": {
+          "expected": "Athletic Shoes",
+          "actual": "Athletic Shoes",
+          "score": 100.0,
+          "passed": true,
+          "details": "Exact match"
+        },
+        "condition": {
+          "expected": "Used - Good",
+          "actual": "New",
+          "score": 0.0,
+          "passed": false,
+          "details": "Mismatch"
+        },
+        "price": {
+          "expected": [
+            80.0,
+            120.0
+          ],
+          "actual": 65.0,
+          "score": 60.0,
+          "passed": false,
+          "details": "Too low by $15.00 (18.8%). Confidence: 45%"
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "Aja2.JPG",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 172.04,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to research pricing: Failed to parse pricing data: Expecting value: line 1 column 2 (char 1)"
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "Helmet5.png",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 5.29,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to analyze image 1: API rate limit exceeded. Please wait a moment and try again."
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "Titleist.png",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 93.88,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to research pricing: Failed to parse pricing data: Expecting value: line 1 column 1 (char 0)"
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "airpods_pro.webp",
+      "status": "failed",
+      "overall_score": 49.0,
+      "duration_seconds": 104.91,
+      "analysis": {
+        "product_name": {
+          "expected": "Apple AirPods Pro",
+          "actual": "Apple AirPods Pro (2nd Generation) with MagSafe Charging Case",
+          "score": 43.59,
+          "passed": false,
+          "details": "Fuzzy match score: 43.58974358974359% (threshold: 80.0%)"
+        },
+        "title": {
+          "expected": "Apple AirPods Pro with MagSafe Charging Case",
+          "actual": "Apple AirPods Pro 2nd Gen White Wireless Earbuds MagSafe Case Used Good",
+          "score": 68.12,
+          "passed": false,
+          "details": "Partial: 66.66666666666667%, Token: 69.56521739130434%, Avg: 68.1% (threshold: 70.0%)"
+        },
+        "description": {
+          "expected": [
+            "active noise cancellation",
+            "transparency mode",
+            "spatial audio",
+            "wireless",
+            "H1 chip"
+          ],
+          "actual": [
+            "active noise cancellation",
+            "transparency mode",
+            "spatial audio",
+            "wireless"
+          ],
+          "score": 80.0,
+          "passed": true,
+          "details": "Found 4/5 keywords. Missing: H1 chip"
+        },
+        "category": {
+          "expected": "Headphones",
+          "actual": "Consumer Electronics - Headphones - Earbuds",
+          "score": 37.74,
+          "passed": false,
+          "details": "Fuzzy match: 37.735849056603776%"
+        },
+        "condition": {
+          "expected": "Used - Like New",
+          "actual": "Used - Good",
+          "score": 0.0,
+          "passed": false,
+          "details": "Mismatch"
+        },
+        "price": {
+          "expected": [
+            150.0,
+            200.0
+          ],
+          "actual": 124.99,
+          "score": 60.0,
+          "passed": false,
+          "details": "Too low by $25.01 (16.7%). Confidence: 65%"
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "instant_pot.webp",
+      "status": "failed",
+      "overall_score": 37.6,
+      "duration_seconds": 69.58,
+      "analysis": {
+        "product_name": {
+          "expected": "Instant Pot Duo",
+          "actual": "Instant Pot Rio Wide Plus Multi-Cooker 7.5 Quart",
+          "score": 38.1,
+          "passed": false,
+          "details": "Fuzzy match score: 38.095238095238095% (threshold: 80.0%)"
+        },
+        "title": {
+          "expected": "Instant Pot Duo 7-in-1 Pressure Cooker 6 Quart",
+          "actual": "Instant Pot Rio Wide Plus 7.5 Qt Multi-Cooker Pressure Cooker Black New",
+          "score": 55.61,
+          "passed": false,
+          "details": "Partial: 56.52173913043479%, Token: 54.700854700854705%, Avg: 55.6% (threshold: 70.0%)"
+        },
+        "description": {
+          "expected": [
+            "pressure cooker",
+            "slow cooker",
+            "rice cooker",
+            "steamer",
+            "multi-function"
+          ],
+          "actual": [
+            "pressure cooker",
+            "multi-function"
+          ],
+          "score": 40.0,
+          "passed": false,
+          "details": "Found 2/5 keywords. Missing: slow cooker, rice cooker, steamer"
+        },
+        "category": {
+          "expected": "Small Kitchen Appliances",
+          "actual": "Kitchen Appliances",
+          "score": 85.71,
+          "passed": false,
+          "details": "Fuzzy match: 85.71428571428572%"
+        },
+        "condition": {
+          "expected": "Used - Good",
+          "actual": "New",
+          "score": 0.0,
+          "passed": false,
+          "details": "Mismatch"
+        },
+        "price": {
+          "expected": [
+            50.0,
+            75.0
+          ],
+          "actual": 189.99,
+          "score": 0.0,
+          "passed": false,
+          "details": "Too high by $114.99 (153.3%). Confidence: 70%"
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "kindle_paperwhite.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 2.07,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to analyze image 1: API rate limit exceeded. Please wait a moment and try again."
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "lego_set.webp",
+      "status": "error",
+      "overall_score": 0.0,
+      "duration_seconds": 1.29,
+      "analysis": {
+        "error": {
+          "expected": "Success",
+          "actual": "Error",
+          "score": 0.0,
+          "passed": false,
+          "details": "Failed to analyze image 1: Failed to analyze image: Connection error."
+        }
+      }
+    },
+    {
+      "test_id": 1,
+      "image_path": "ps5_controller.webp",
+      "status": "passed",
+      "overall_score": 79.03,
+      "duration_seconds": 67.49,
+      "analysis": {
+        "product_name": {
+          "expected": "PlayStation 5 DualSense Controller",
+          "actual": "Sony PlayStation 5 DualSense Wireless Controller",
+          "score": 82.93,
+          "passed": true,
+          "details": "Fuzzy match score: 82.92682926829268%"
+        },
+        "title": {
+          "expected": "Sony PS5 DualSense Wireless Controller - White",
+          "actual": "Sony PS5 DualSense Wireless Controller White CFI-ZCT1W Haptic Feedback New",
+          "score": 87.22,
+          "passed": true,
+          "details": "Partial: 97.77777777777777%, Token: 76.66666666666666%, Avg: 87.2%"
+        },
+        "description": {
+          "expected": [
+            "haptic feedback",
+            "adaptive triggers",
+            "wireless",
+            "rechargeable",
+            "PS5"
+          ],
+          "actual": [
+            "haptic feedback",
+            "adaptive triggers",
+            "wireless",
+            "rechargeable",
+            "PS5"
+          ],
+          "score": 100.0,
+          "passed": true,
+          "details": "Found 5/5 keywords"
+        },
+        "category": {
+          "expected": "Video Game Controllers",
+          "actual": "Video Game Controllers",
+          "score": 100.0,
+          "passed": true,
+          "details": "Exact match"
+        },
+        "condition": {
+          "expected": "New",
+          "actual": "New",
+          "score": 100.0,
+          "passed": true,
+          "details": "Exact match"
+        },
+        "price": {
+          "expected": [
+            55.0,
+            75.0
+          ],
+          "actual": 145.0,
+          "score": 0.0,
+          "passed": false,
+          "details": "Too high by $70.00 (93.3%). Confidence: 78%"
+        }
+      }
+    }
+  ]
+}

@@ -1,29 +1,87 @@
-import { useRef, useState, DragEvent } from 'react';
+import { useRef, useState, useEffect, DragEvent } from 'react';
+import { Upload, Image } from 'lucide-react';
 
-interface ImageUploadProps {
-  onImageSelect: (file: File) => void;
-  disabled?: boolean;
+interface ImageFile {
+  file: File;
+  preview: string;
 }
 
-export default function ImageUpload({ onImageSelect, disabled = false }: ImageUploadProps) {
-  const [preview, setPreview] = useState<string | null>(null);
+interface ImageUploadProps {
+  onImagesSelect: (files: File[]) => void;
+  onContextChange?: (context: string) => void;
+  disabled?: boolean;
+  selectedFiles?: File[];
+  userContext?: string;
+  hideUploadArea?: boolean;
+}
+
+export default function ImageUpload({ onImagesSelect, onContextChange, disabled = false, selectedFiles = [], userContext = '', hideUploadArea = false }: ImageUploadProps) {
+  const [images, setImages] = useState<ImageFile[]>([]);
   const [dragActive, setDragActive] = useState(false);
+  const [context, setContext] = useState(userContext);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file');
+  // DEBUG: Log whether onContextChange prop is provided on mount
+  useEffect(() => {
+    console.log('ImageUpload mounted. onContextChange prop:', typeof onContextChange, onContextChange ? 'PROVIDED' : 'NOT PROVIDED');
+  }, []);
+
+  // Reset images when selectedFiles prop becomes empty
+  useEffect(() => {
+    if (selectedFiles.length === 0 && images.length > 0) {
+      setImages([]);
+    }
+  }, [selectedFiles.length, images.length]);
+
+  const validateAndAddFiles = (newFiles: FileList | File[]) => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxImages = 5;
+
+    const filesArray = Array.from(newFiles);
+    const currentCount = images.length;
+
+    // Check if adding these files would exceed the limit
+    if (currentCount + filesArray.length > maxImages) {
+      alert(`Maximum ${maxImages} images allowed. You currently have ${currentCount} image(s).`);
       return;
     }
 
-    // Create preview
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    const validFiles: ImageFile[] = [];
 
-    onImageSelect(file);
+    for (const file of filesArray) {
+      // Validate file type
+      if (!allowedTypes.includes(file.type)) {
+        alert(`Invalid file type: ${file.type}\n\nPlease select an image file:\n• JPEG (.jpg, .jpeg)\n• PNG (.png)\n• WebP (.webp)\n• GIF (.gif)`);
+        continue;
+      }
+
+      // Validate file size
+      if (file.size > maxSize) {
+        alert(`File ${file.name} size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds the 10MB limit.`);
+        continue;
+      }
+
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        validFiles.push({
+          file,
+          preview: reader.result as string,
+        });
+
+        // When all files are processed, update state
+        if (validFiles.length === filesArray.length || validFiles.length + currentCount === maxImages) {
+          const updatedImages = [...images, ...validFiles];
+          setImages(updatedImages);
+          onImagesSelect(updatedImages.map(img => img.file));
+        }
+      };
+      reader.onerror = () => {
+        alert(`Failed to read ${file.name}. Please try again.`);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleDrag = (e: DragEvent<HTMLDivElement>) => {
@@ -43,87 +101,167 @@ export default function ImageUpload({ onImageSelect, disabled = false }: ImageUp
 
     if (disabled) return;
 
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      validateAndAddFiles(e.dataTransfer.files);
     }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
-    if (e.target.files && e.target.files[0]) {
-      handleFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      validateAndAddFiles(e.target.files);
     }
   };
 
   const handleClick = () => {
-    if (!disabled) {
+    if (!disabled && images.length < 5) {
       fileInputRef.current?.click();
     }
   };
 
-  return (
-    <div className="space-y-2">
-      <label className="block text-sm font-medium text-gray-700">
-        Product Image
-      </label>
-      <div
-        onClick={handleClick}
-        onDragEnter={handleDrag}
-        onDragLeave={handleDrag}
-        onDragOver={handleDrag}
-        onDrop={handleDrop}
-        className={`
-          relative border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
-          transition-all duration-200
-          ${dragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'}
-          ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
-        `}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          accept="image/*"
-          onChange={handleChange}
-          disabled={disabled}
-          aria-label="Upload product image"
-        />
+  const removeImage = (index: number) => {
+    const updatedImages = images.filter((_, i) => i !== index);
+    setImages(updatedImages);
+    onImagesSelect(updatedImages.map(img => img.file));
+  };
 
-        {preview ? (
-          <div className="space-y-4">
-            <img
-              src={preview}
-              alt="Product preview"
-              className="max-h-64 mx-auto rounded-lg shadow-md"
+  const handleContextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newContext = e.target.value;
+    console.log('ImageUpload: handleContextChange called with:', JSON.stringify(newContext));
+    setContext(newContext);
+    console.log('ImageUpload: local context state updated to:', JSON.stringify(newContext));
+    if (onContextChange) {
+      console.log('ImageUpload: calling onContextChange callback with:', JSON.stringify(newContext));
+      onContextChange(newContext);
+    } else {
+      console.warn('ImageUpload: onContextChange callback is not provided!');
+    }
+  };
+
+  return (
+    <div className="w-full">
+      {/* Thumbnails with Preview Badge */}
+      {images.length > 0 && (
+        <div className="mb-6">
+          <div className="inline-block bg-gray-100 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-md mb-3">
+            Preview
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            {images.map((img, idx) => (
+              <div key={idx} className="relative group">
+                <div className="w-full aspect-square bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
+                  <img
+                    src={img.preview}
+                    alt={`Product ${idx + 1}`}
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                {idx === 0 && (
+                  <div className="absolute top-3 left-3 bg-black text-white text-xs px-2 py-1 rounded font-medium">
+                    Primary
+                  </div>
+                )}
+                <button
+                  onClick={() => removeImage(idx)}
+                  disabled={disabled}
+                  className="absolute top-3 right-3 bg-white text-gray-700 rounded-full w-8 h-8 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-gray-100 disabled:opacity-50 font-bold text-lg"
+                  aria-label={`Remove image ${idx + 1}`}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Upload Area - Matching Mockup Design */}
+      {images.length < 5 && !hideUploadArea && (
+        <div className="bg-white rounded-2xl border-2 border-gray-200 p-8">
+          <div
+            onClick={handleClick}
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+            className={`
+              relative border-2 border-dashed rounded-xl py-16 px-8 text-center cursor-pointer
+              transition-all duration-200
+              ${dragActive ? 'border-gray-400 bg-gray-50' : 'border-gray-300 hover:border-gray-400'}
+              ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+            `}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept="image/*"
+              multiple
+              onChange={handleChange}
+              disabled={disabled}
+              aria-label="Upload product images"
             />
-            <p className="text-sm text-gray-600">
-              Click or drag to replace image
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <svg
-              className="mx-auto h-12 w-12 text-gray-400"
-              stroke="currentColor"
-              fill="none"
-              viewBox="0 0 48 48"
-              aria-hidden="true"
-            >
-              <path
-                d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            <div className="text-sm text-gray-600">
-              <span className="font-semibold text-blue-600">Click to upload</span>
-              {' '}or drag and drop
+
+            <div className="flex flex-col items-center space-y-6">
+              {/* Upload Icon */}
+              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
+                <Upload className="w-8 h-8 text-gray-500" />
+              </div>
+
+              {/* Text and Button */}
+              <div className="space-y-4">
+                <p className="text-base text-gray-600">
+                  Drag and drop your product image here, or
+                </p>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleClick();
+                  }}
+                  disabled={disabled}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Image className="w-4 h-4" />
+                  Browse Files
+                </button>
+
+                <p className="text-sm text-gray-500">
+                  Supports: JPG, PNG, WEBP (Max 10MB)
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {images.length > 1 && (
+        <div className="mt-4 text-sm text-gray-600 bg-blue-50 p-4 rounded-lg border border-blue-100">
+          <span className="font-semibold">Multiple images detected:</span> All images will be analyzed and cross-referenced for better accuracy.
+        </div>
+      )}
+
+      {/* User Context Input */}
+      {images.length > 0 && (
+        <div className="mt-4">
+          <label htmlFor="user-context" className="block text-sm font-medium text-gray-700 mb-2">
+            Additional Details (Optional)
+          </label>
+          <input
+            id="user-context"
+            type="text"
+            value={context}
+            onChange={handleContextChange}
+            disabled={disabled}
+            placeholder="e.g., Aja Wilson size 10, iPhone 12 Pro Max, Nike Air Jordan 1..."
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+          <p className="mt-2 text-xs text-gray-500">
+            Help us identify your product more accurately by providing specific details like brand, model, size, or unique features.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

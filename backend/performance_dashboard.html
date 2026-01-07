@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Performance Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 24px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            opacity: 0.9;
+        }
+
+        .controls {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .controls select, .controls button {
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            background: #0f172a;
+            color: #e2e8f0;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .controls select:hover, .controls button:hover {
+            border-color: #667eea;
+            background: #1e293b;
+        }
+
+        .controls button {
+            background: #667eea;
+            border-color: #667eea;
+        }
+
+        .controls button:hover {
+            background: #5568d3;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 12px;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-card h3 {
+            font-size: 14px;
+            color: #94a3b8;
+            margin-bottom: 8px;
+        }
+
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+
+        .stat-card .unit {
+            font-size: 16px;
+            color: #94a3b8;
+            margin-left: 4px;
+        }
+
+        .request-card {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            border: 1px solid #334155;
+            transition: all 0.2s;
+        }
+
+        .request-card.has-error {
+            border-left: 4px solid #ef4444;
+        }
+
+        .request-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .request-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #334155;
+        }
+
+        .request-id {
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .timestamp {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            border-bottom: 2px solid #334155;
+        }
+
+        .tab {
+            padding: 12px 20px;
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: #e2e8f0;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab.error-tab {
+            color: #ef4444;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .section {
+            background: #0f172a;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+
+        .section h4 {
+            font-size: 14px;
+            color: #94a3b8;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .info-label {
+            font-size: 12px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .info-value {
+            font-size: 14px;
+            color: #e2e8f0;
+            font-weight: 500;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+
+        .badge-warning {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+        }
+
+        .badge-error {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .error-banner {
+            background: rgba(239, 68, 68, 0.1);
+            border: 2px solid #ef4444;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .error-banner h4 {
+            color: #ef4444;
+            font-size: 16px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .error-content {
+            background: #0f172a;
+            padding: 12px;
+            border-radius: 6px;
+            margin-top: 12px;
+        }
+
+        .error-message {
+            color: #fca5a5;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .error-traceback {
+            margin-top: 12px;
+        }
+
+        .error-traceback summary {
+            cursor: pointer;
+            color: #94a3b8;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .error-traceback summary:hover {
+            color: #e2e8f0;
+        }
+
+        .error-traceback pre {
+            background: #000;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 11px;
+            line-height: 1.4;
+            color: #f87171;
+        }
+
+        .features-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .features-list li {
+            padding: 8px 12px;
+            background: #1e293b;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            border-left: 3px solid #667eea;
+        }
+
+        .pricing-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .pricing-table th,
+        .pricing-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #334155;
+        }
+
+        .pricing-table th {
+            background: #1e293b;
+            color: #94a3b8;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .pricing-table td {
+            font-size: 14px;
+        }
+
+        .pricing-table a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .pricing-table a:hover {
+            text-decoration: underline;
+        }
+
+        .timeline {
+            position: relative;
+            padding-left: 32px;
+            margin: 16px 0;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 10px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .timeline-event {
+            position: relative;
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            background: #0f172a;
+            border-radius: 8px;
+            border-left: 3px solid #667eea;
+        }
+
+        .timeline-event.error-event {
+            border-left-color: #ef4444;
+            background: rgba(239, 68, 68, 0.05);
+        }
+
+        .timeline-event::before {
+            content: '';
+            position: absolute;
+            left: -31px;
+            top: 16px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #667eea;
+            border: 2px solid #1e293b;
+        }
+
+        .timeline-event.error-event::before {
+            background: #ef4444;
+        }
+
+        .event-type {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .event-details {
+            font-size: 12px;
+            color: #94a3b8;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .event-detail strong {
+            color: #e2e8f0;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 48px 20px;
+            color: #94a3b8;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 48px 20px;
+        }
+
+        .spinner {
+            border: 3px solid #334155;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .json-viewer {
+            background: #0f172a;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .big-stat {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 24px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        .big-stat.error-stat {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+
+        .big-stat .label {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.8);
+            margin-bottom: 8px;
+        }
+
+        .big-stat .value {
+            font-size: 48px;
+            font-weight: 700;
+            color: white;
+        }
+
+        .error-type-badge {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            padding: 6px 14px;
+            border-radius: 16px;
+            font-size: 13px;
+            font-weight: 600;
+            display: inline-block;
+            margin-bottom: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Performance Dashboard</h1>
+        <p>Real-time analysis performance & results monitoring with detailed error tracking</p>
+    </div>
+
+    <div class="controls">
+        <select id="requestFilter" onchange="filterByRequest()">
+            <option value="">All Requests</option>
+        </select>
+        <select id="sortBy" onchange="renderDashboard()">
+            <option value="time_desc">Newest First</option>
+            <option value="time_asc">Oldest First</option>
+            <option value="duration_desc">Slowest First</option>
+            <option value="duration_asc">Fastest First</option>
+            <option value="errors_first">Errors First</option>
+            <option value="success_first">Success First</option>
+        </select>
+        <button onclick="loadLogs()">Refresh</button>
+        <button onclick="toggleAutoRefresh()">
+            Auto-refresh: <span id="autoRefreshStatus">OFF</span>
+        </button>
+    </div>
+
+    <div class="stats" id="stats"></div>
+    <div id="content">
+        <div class="loading">
+            <div class="spinner"></div>
+            <p>Loading performance data...</p>
+        </div>
+    </div>
+
+    <script>
+        let allLogs = {
+            performance: [],
+            api_requests: [],
+            web_search: [],
+            analysis_results: [],
+            pricing_results: [],
+            request_status: []
+        };
+        let autoRefreshInterval = null;
+
+        async function loadLogs() {
+            try {
+                const response = await fetch('/api/performance/logs');
+                allLogs = await response.json();
+                renderDashboard();
+            } catch (error) {
+                document.getElementById('content').innerHTML = `
+                    <div class="no-data">
+                        <h3>Error loading performance data</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function sortRequestIds(requestIds, sortBy) {
+            // Helper function to get timestamp for a request ID
+            const getTimestamp = (requestId) => {
+                const perfLogs = allLogs.performance.filter(log => log.request_id === requestId);
+                const startEvent = perfLogs.find(log => log.type && log.type.includes('start'));
+                return startEvent ? new Date(startEvent.timestamp).getTime() : 0;
+            };
+
+            // Helper function to get API duration for a request ID
+            const getDuration = (requestId) => {
+                const apiLogs = allLogs.api_requests.filter(log => log.request_id === requestId);
+                const complete = apiLogs.find(log => log.type && log.type.includes('complete'));
+                return complete ? (complete.duration_ms || 0) : 0;
+            };
+
+            // Helper function to check if request has error
+            const hasError = (requestId) => {
+                const status = allLogs.request_status.find(s => s.request_id === requestId);
+                return status && status.status === 'error';
+            };
+
+            // Sort based on selected criteria
+            switch (sortBy) {
+                case 'time_desc': // Newest first (default)
+                    return requestIds.sort((a, b) => getTimestamp(b) - getTimestamp(a));
+
+                case 'time_asc': // Oldest first
+                    return requestIds.sort((a, b) => getTimestamp(a) - getTimestamp(b));
+
+                case 'duration_desc': // Slowest first
+                    return requestIds.sort((a, b) => getDuration(b) - getDuration(a));
+
+                case 'duration_asc': // Fastest first
+                    return requestIds.sort((a, b) => getDuration(a) - getDuration(b));
+
+                case 'errors_first': // Errors first, then by time desc
+                    return requestIds.sort((a, b) => {
+                        const aHasError = hasError(a);
+                        const bHasError = hasError(b);
+                        if (aHasError && !bHasError) return -1;
+                        if (!aHasError && bHasError) return 1;
+                        return getTimestamp(b) - getTimestamp(a);
+                    });
+
+                case 'success_first': // Success first, then by time desc
+                    return requestIds.sort((a, b) => {
+                        const aHasError = hasError(a);
+                        const bHasError = hasError(b);
+                        if (!aHasError && bHasError) return -1;
+                        if (aHasError && !bHasError) return 1;
+                        return getTimestamp(b) - getTimestamp(a);
+                    });
+
+                default:
+                    return requestIds.sort((a, b) => getTimestamp(b) - getTimestamp(a));
+            }
+        }
+
+        function renderDashboard() {
+            const filter = document.getElementById('requestFilter').value;
+            const sortBy = document.getElementById('sortBy').value;
+
+            // Extract unique request IDs
+            let requestIds = [...new Set([
+                ...allLogs.performance.map(log => log.request_id),
+                ...allLogs.api_requests.map(log => log.request_id),
+                ...allLogs.analysis_results.map(log => log.request_id),
+                ...allLogs.pricing_results.map(log => log.request_id),
+                ...allLogs.request_status.map(log => log.request_id)
+            ].filter(Boolean))];
+
+            // Apply sorting
+            requestIds = sortRequestIds(requestIds, sortBy);
+
+            // Update filter dropdown
+            const currentValue = document.getElementById('requestFilter').value;
+            document.getElementById('requestFilter').innerHTML = `
+                <option value="">All Requests (${requestIds.length})</option>
+                ${requestIds.map(id => `<option value="${id}" ${id === currentValue ? 'selected' : ''}>${id}</option>`).join('')}
+            `;
+
+            // Filter logs if needed
+            const filteredRequestIds = filter ? [filter] : requestIds;
+
+            // Calculate stats
+            renderStats(filteredRequestIds);
+
+            // Render requests
+            if (filteredRequestIds.length === 0) {
+                document.getElementById('content').innerHTML = `
+                    <div class="no-data">
+                        <h3>No performance data available</h3>
+                        <p>Performance logs will appear here after an analysis request is made.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const html = filteredRequestIds.map(requestId => renderRequest(requestId)).join('');
+            document.getElementById('content').innerHTML = html;
+        }
+
+        function renderStats(requestIds) {
+            const apiRequests = requestIds.map(id => {
+                const apiLogs = allLogs.api_requests.filter(log => log.request_id === id);
+                const complete = apiLogs.find(log => log.type.includes('complete'));
+                return complete ? complete.duration_ms : null;
+            }).filter(Boolean);
+
+            const avgDuration = apiRequests.length ? Math.round(apiRequests.reduce((a, b) => a + b, 0) / apiRequests.length) : 0;
+            const maxDuration = apiRequests.length ? Math.round(Math.max(...apiRequests)) : 0;
+            const totalSearches = requestIds.map(id => allLogs.web_search.filter(log => log.request_id === id).length).reduce((a, b) => a + b, 0);
+
+            const analysisResults = requestIds.map(id => {
+                const results = allLogs.analysis_results.filter(log => log.request_id === id);
+                return results.length > 0 ? results[0] : null;
+            }).filter(Boolean);
+
+            const avgConfidence = analysisResults.length ?
+                Math.round(analysisResults.reduce((sum, r) => sum + (r.result?.analysis_confidence || 0), 0) / analysisResults.length) : 0;
+
+            // Count errors
+            const errorCount = requestIds.filter(id => {
+                const status = allLogs.request_status.find(s => s.request_id === id);
+                return status && status.status === 'error';
+            }).length;
+
+            document.getElementById('stats').innerHTML = `
+                <div class="stat-card" style="border-left-color: #667eea;">
+                    <h3>Total Requests</h3>
+                    <div class="value">${requestIds.length}</div>
+                </div>
+                <div class="stat-card" style="border-left-color: ${errorCount > 0 ? '#ef4444' : '#10b981'};">
+                    <h3>${errorCount > 0 ? 'Errors' : 'Success Rate'}</h3>
+                    <div class="value">${errorCount > 0 ? errorCount : '100%'}</div>
+                </div>
+                <div class="stat-card" style="border-left-color: #10b981;">
+                    <h3>Avg API Duration</h3>
+                    <div class="value">${(avgDuration / 1000).toFixed(1)}<span class="unit">s</span></div>
+                </div>
+                <div class="stat-card" style="border-left-color: #f59e0b;">
+                    <h3>Max API Duration</h3>
+                    <div class="value">${(maxDuration / 1000).toFixed(1)}<span class="unit">s</span></div>
+                </div>
+                <div class="stat-card" style="border-left-color: #8b5cf6;">
+                    <h3>Avg Confidence</h3>
+                    <div class="value">${avgConfidence}<span class="unit">%</span></div>
+                </div>
+            `;
+        }
+
+        function renderRequest(requestId) {
+            const perfLogs = allLogs.performance.filter(log => log.request_id === requestId).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            const apiLogs = allLogs.api_requests.filter(log => log.request_id === requestId).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            const searchLogs = allLogs.web_search.filter(log => log.request_id === requestId);
+            const analysisResults = allLogs.analysis_results.filter(log => log.request_id === requestId);
+            const pricingResults = allLogs.pricing_results.filter(log => log.request_id === requestId);
+            const status = allLogs.request_status.find(s => s.request_id === requestId);
+
+            const startEvent = perfLogs.find(log => log.type.includes('start'));
+            const timestamp = startEvent ? new Date(startEvent.timestamp).toLocaleString() : 'N/A';
+
+            const hasError = status && status.status === 'error';
+            const errorClass = hasError ? ' has-error' : '';
+
+            return `
+                <div class="request-card${errorClass}">
+                    <div class="request-header">
+                        <div>
+                            <div class="request-id">${requestId}</div>
+                            ${hasError ? '<div style="margin-top: 8px;"><span class="badge badge-error">⚠️ ERROR</span></div>' : ''}
+                        </div>
+                        <div class="timestamp">${timestamp}</div>
+                    </div>
+
+                    ${hasError ? renderErrorBanner(status) : ''}
+
+                    <div class="tabs">
+                        <button class="tab ${hasError ? 'error-tab' : ''} ${hasError ? 'active' : ''}" onclick="switchTab(event, '${requestId}', 'errors')">
+                            ${hasError ? '⚠️ Errors' : '✓ Status'}
+                        </button>
+                        <button class="tab ${!hasError ? 'active' : ''}" onclick="switchTab(event, '${requestId}', 'performance')">Performance</button>
+                        <button class="tab" onclick="switchTab(event, '${requestId}', 'analysis')">Analysis ${analysisResults.length > 0 ? '(' + analysisResults.length + ')' : ''}</button>
+                        <button class="tab" onclick="switchTab(event, '${requestId}', 'pricing')">Pricing ${pricingResults.length > 0 ? '(1)' : ''}</button>
+                    </div>
+
+                    <div id="${requestId}-errors" class="tab-content ${hasError ? 'active' : ''}">
+                        ${renderErrorsTab(requestId, status)}
+                    </div>
+
+                    <div id="${requestId}-performance" class="tab-content ${!hasError ? 'active' : ''}">
+                        ${renderPerformanceTab(requestId, perfLogs, apiLogs, searchLogs)}
+                    </div>
+
+                    <div id="${requestId}-analysis" class="tab-content">
+                        ${renderAnalysisTab(requestId, analysisResults)}
+                    </div>
+
+                    <div id="${requestId}-pricing" class="tab-content">
+                        ${renderPricingTab(requestId, pricingResults)}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderErrorBanner(status) {
+            if (!status || status.status !== 'error') return '';
+
+            return `
+                <div class="error-banner">
+                    <h4>⚠️ Request Failed</h4>
+                    <div style="color: #fca5a5; font-size: 13px;">
+                        This request encountered an error during processing. See the Errors tab for full details.
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderErrorsTab(requestId, status) {
+            if (!status || status.status !== 'error') {
+                return `
+                    <div class="section">
+                        <h4>✓ Request Completed Successfully</h4>
+                        <p style="color: #10b981; font-size: 14px;">No errors occurred during this request.</p>
+                    </div>
+                `;
+            }
+
+            const error = status.error || {};
+            const errorType = error.type || 'unknown_error';
+            const errorMessage = error.message || 'An unknown error occurred';
+            const errorDetails = error.details || '';
+            const errorTraceback = error.traceback || '';
+
+            return `
+                <div class="big-stat error-stat">
+                    <div class="label">Request Status</div>
+                    <div class="value" style="font-size: 36px;">FAILED</div>
+                </div>
+
+                <div class="section">
+                    <h4>Error Details</h4>
+                    <div class="error-type-badge">${errorType.replace(/_/g, ' ').toUpperCase()}</div>
+
+                    <div class="error-content">
+                        <div class="info-label" style="margin-bottom: 8px;">Error Message</div>
+                        <div class="error-message">${escapeHtml(errorMessage)}</div>
+
+                        ${errorDetails ? `
+                            <div style="margin-top: 16px;">
+                                <div class="info-label" style="margin-bottom: 8px;">Additional Details</div>
+                                <div class="error-message">${escapeHtml(errorDetails)}</div>
+                            </div>
+                        ` : ''}
+
+                        ${errorTraceback ? `
+                            <details class="error-traceback">
+                                <summary>Full Traceback (click to expand)</summary>
+                                <pre>${escapeHtml(errorTraceback)}</pre>
+                            </details>
+                        ` : ''}
+                    </div>
+                </div>
+
+                ${status.context ? `
+                    <div class="section">
+                        <h4>Request Context</h4>
+                        <div class="json-viewer">
+                            ${JSON.stringify(status.context, null, 2)}
+                        </div>
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        function renderPerformanceTab(requestId, perfLogs, apiLogs, searchLogs) {
+            let timeline = [...perfLogs, ...apiLogs].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+            return `
+                <div class="section">
+                    <h4>Timeline</h4>
+                    <div class="timeline">
+                        ${timeline.map(event => {
+                            const isError = event.type && event.type.includes('error');
+                            return `
+                                <div class="timeline-event ${isError ? 'error-event' : ''}">
+                                    <div class="event-type">${formatEventType(event.type)}</div>
+                                    <div class="event-details">
+                                        ${event.duration_ms ? `<div class="event-detail"><strong>${event.duration_ms.toFixed(0)}ms</strong></div>` : ''}
+                                        ${event.input_tokens ? `<div class="event-detail"><span>Input:</span> <strong>${event.input_tokens}</strong> tokens</div>` : ''}
+                                        ${event.output_tokens ? `<div class="event-detail"><span>Output:</span> <strong>${event.output_tokens}</strong> tokens</div>` : ''}
+                                        ${event.image_size_bytes ? `<div class="event-detail"><span>Image:</span> <strong>${(event.image_size_bytes / 1024).toFixed(0)}KB</strong></div>` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                ${searchLogs.length > 0 ? `
+                    <div class="section">
+                        <h4>Web Searches (${searchLogs.length})</h4>
+                        ${searchLogs.map(s => `
+                            <div class="features-list">
+                                <li><strong>#${s.search_num}:</strong> ${s.query}</li>
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        function renderAnalysisTab(requestId, analysisResults) {
+            if (analysisResults.length === 0) {
+                return '<div class="no-data"><p>No analysis results available</p></div>';
+            }
+
+            return analysisResults.map((log, idx) => {
+                const result = log.result || {};
+                const confidence = result.analysis_confidence || 0;
+                const badgeClass = confidence >= 80 ? 'badge-success' : confidence >= 60 ? 'badge-warning' : 'badge-error';
+
+                return `
+                    ${analysisResults.length > 1 ? `<h4 style="margin-bottom: 16px;">Image ${log.image_index + 1}</h4>` : ''}
+
+                    <div class="big-stat">
+                        <div class="label">${result.product_name || 'Unknown Product'}</div>
+                        <div class="value">${confidence}%</div>
+                        <div class="label">Confidence</div>
+                    </div>
+
+                    <div class="section">
+                        <h4>Product Information</h4>
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <div class="info-label">Brand</div>
+                                <div class="info-value">${result.brand || 'N/A'}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Category</div>
+                                <div class="info-value">${result.category || 'N/A'}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Condition</div>
+                                <div class="info-value">${result.condition || 'N/A'}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Color</div>
+                                <div class="info-value">${result.color || 'N/A'}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Material</div>
+                                <div class="info-value">${result.material || 'N/A'}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Model Number</div>
+                                <div class="info-value">${result.model_number || 'N/A'}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    ${result.key_features && result.key_features.length > 0 ? `
+                        <div class="section">
+                            <h4>Key Features</h4>
+                            <ul class="features-list">
+                                ${result.key_features.map(f => `<li>${f}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+
+                    ${result.suggested_title ? `
+                        <div class="section">
+                            <h4>Suggested Title</h4>
+                            <p style="font-size: 14px; line-height: 1.6;">${result.suggested_title}</p>
+                        </div>
+                    ` : ''}
+
+                    ${result.suggested_description ? `
+                        <div class="section">
+                            <h4>Suggested Description</h4>
+                            <p style="font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${result.suggested_description}</p>
+                        </div>
+                    ` : ''}
+
+                    ${result.reasoning ? `
+                        <div class="section">
+                            <h4>AI Reasoning</h4>
+                            <p style="font-size: 14px; line-height: 1.6;">${result.reasoning}</p>
+                        </div>
+                    ` : ''}
+                `;
+            }).join('');
+        }
+
+        function renderPricingTab(requestId, pricingResults) {
+            if (pricingResults.length === 0) {
+                return '<div class="no-data"><p>No pricing results available</p></div>';
+            }
+
+            const pricing = pricingResults[0].result || {};
+            const stats = pricing.statistics || {};
+            const competitors = pricing.competitor_prices || [];
+            const confidence = pricing.confidence_score || 0;
+            const badgeClass = confidence >= 80 ? 'badge-success' : confidence >= 60 ? 'badge-warning' : 'badge-error';
+
+            return `
+                <div class="big-stat">
+                    <div class="label">Suggested Price</div>
+                    <div class="value">$${(stats.suggested_price || 0).toFixed(2)}</div>
+                    <div class="label">
+                        <span class="badge ${badgeClass}">${confidence}% Confidence</span>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h4>Price Statistics</h4>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <div class="info-label">Minimum</div>
+                            <div class="info-value">$${(stats.min_price || 0).toFixed(2)}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Maximum</div>
+                            <div class="info-value">$${(stats.max_price || 0).toFixed(2)}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Average</div>
+                            <div class="info-value">$${(stats.average || 0).toFixed(2)}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Median</div>
+                            <div class="info-value">$${(stats.median || 0).toFixed(2)}</div>
+                        </div>
+                    </div>
+                </div>
+
+                ${competitors.length > 0 ? `
+                    <div class="section">
+                        <h4>Competitor Listings (${competitors.length})</h4>
+                        <table class="pricing-table">
+                            <thead>
+                                <tr>
+                                    <th>Price</th>
+                                    <th>Title</th>
+                                    <th>Status</th>
+                                    <th>Link</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${competitors.map(c => `
+                                    <tr>
+                                        <td><strong>$${(c.price || 0).toFixed(2)}</strong></td>
+                                        <td>${c.title || 'N/A'}</td>
+                                        <td>${c.date_sold === 'Active' ? '<span class="badge badge-success">Active</span>' : 'Sold ' + (c.date_sold || 'N/A')}</td>
+                                        <td>${c.url ? `<a href="${c.url}" target="_blank">View</a>` : 'N/A'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                ` : ''}
+
+                ${pricing.market_insights ? `
+                    <div class="section">
+                        <h4>Market Insights</h4>
+                        <p style="font-size: 14px; line-height: 1.6;">${pricing.market_insights}</p>
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        function switchTab(event, requestId, tabName) {
+            // Hide all tabs for this request
+            const tabs = document.querySelectorAll(`[id^="${requestId}-"]`);
+            tabs.forEach(tab => tab.classList.remove('active'));
+
+            // Remove active class from all tab buttons
+            const tabButtons = event.target.parentElement.querySelectorAll('.tab');
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+
+            // Show selected tab
+            document.getElementById(`${requestId}-${tabName}`).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function formatEventType(type) {
+            return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        }
+
+        function filterByRequest() {
+            renderDashboard();
+        }
+
+        function toggleAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                document.getElementById('autoRefreshStatus').textContent = 'OFF';
+            } else {
+                autoRefreshInterval = setInterval(loadLogs, 3000);
+                document.getElementById('autoRefreshStatus').textContent = 'ON (3s)';
+                loadLogs();
+            }
+        }
+
+        // Initial load
+        loadLogs();
+    </script>
+</body>
+</html>

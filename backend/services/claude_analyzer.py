@@ -427,14 +427,46 @@ Before proceeding to JSON output, you MUST:
 3. ✅ ONLY use `web_search` if you need to research specific attribute VALUES (not the aspect list itself)
 
 ### 7.1 Find the Right Category
-Call the `search_ebay_categories` tool with a descriptive query:
 
-Example queries:
-- Furniture: "sideboard buffet furniture wood storage"
-- Electronics: "wireless bluetooth earbuds apple"
-- Clothing: "men's running shoes nike athletic"
+**⚠️ CRITICAL: Query Construction Rules**
 
-Select the MOST SPECIFIC category from results.
+The query you send to `search_ebay_categories` determines category accuracy. Follow these rules EXACTLY:
+
+**Rule 1: PRODUCT TYPE FIRST**
+The first 1-2 words MUST describe what the item IS (noun), not who made it.
+- ✅ "earbuds wireless bluetooth" 
+- ❌ "Apple AirPods Pro" (brand-first causes wrong matches)
+
+**Rule 2: AVOID AMBIGUOUS MODEL TERMS**
+Words like "Pro", "Max", "Air", "Plus" match MANY product types. Never include them.
+- ✅ "wireless earbuds noise cancelling"
+- ❌ "AirPods Pro" (Pro matches MacBook Pro, iPad Pro, etc.)
+
+**Rule 3: BRAND GOES LAST (or omit entirely)**
+eBay categories are product-based, not brand-based. Brand is optional and always last.
+- ✅ "wireless earbuds bluetooth Apple"
+- ✅ "running shoes athletic mens Nike"
+- ❌ "Apple wireless earbuds"
+
+**Rule 4: USE CATEGORY-LEVEL TERMS, NOT PRODUCT NAMES**
+Think: "What shelf in the store would this be on?"
+- ✅ "earbuds" (category term)
+- ❌ "AirPods" (product name - too specific, may not match category vocabulary)
+
+**Query Template:**
+`"{{product_type}} {{subcategory}} {{key_attribute}} {{brand}}"`
+
+**Examples:**
+| Product | ❌ Bad Query | ✅ Good Query |
+|---------|-------------|---------------|
+| AirPods Pro 2nd Gen | "Apple AirPods Pro" | "earbuds wireless bluetooth noise cancelling" |
+| MacBook Pro 14" | "Apple MacBook Pro" | "laptop notebook computer 14 inch" |
+| Nike Air Max 90 | "Nike Air Max shoes" | "running shoes athletic sneakers mens" |
+| PS5 DualSense | "Sony PlayStation controller" | "game controller gamepad wireless PS5" |
+| Owala Water Bottle | "Owala FreeSip" | "water bottle insulated stainless steel" |
+
+Call the `search_ebay_categories` tool with your constructed query.
+Select the MOST SPECIFIC category from results (deepest category path).
 
 ### 7.2 Get Category-Specific Aspects
 The `search_ebay_categories` tool returns aspect definitions for each category, including:
