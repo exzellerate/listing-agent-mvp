@@ -57,27 +57,6 @@ export default function FeedbackPage() {
     }
   };
 
-  const getFeedbackIcon = (type: FeedbackType) => {
-    switch (type) {
-      case 'feature':
-        return <Lightbulb className="w-5 h-5" />;
-      case 'bug':
-        return <Bug className="w-5 h-5" />;
-      default:
-        return <MessageSquare className="w-5 h-5" />;
-    }
-  };
-
-  const getFeedbackColor = (type: FeedbackType) => {
-    switch (type) {
-      case 'feature':
-        return 'bg-purple-50 border-purple-200 text-purple-700';
-      case 'bug':
-        return 'bg-red-50 border-red-200 text-red-700';
-      default:
-        return 'bg-blue-50 border-blue-200 text-blue-700';
-    }
-  };
 
   return (
     <Layout

@@ -125,6 +125,10 @@ class AnalysisResponse(BaseModel):
     suggested_category_id: Optional[str] = Field(None, description="Top suggested eBay category ID")
     suggested_category_aspects: Optional[Dict[str, Any]] = Field(None, description="Formatted aspects for top suggested category")
 
+    # LLM-predicted eBay category and aspect values
+    ebay_category: Optional[Dict[str, Any]] = Field(None, description="LLM-selected eBay category with alternatives")
+    ebay_aspects: Optional[Dict[str, Any]] = Field(None, description="LLM-predicted aspect values from image analysis")
+
 
 class CompetitorListing(BaseModel):
     """Model for a competitor's listing."""

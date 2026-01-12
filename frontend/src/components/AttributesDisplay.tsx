@@ -84,12 +84,12 @@ export default function AttributesDisplay({ result }: AttributesDisplayProps) {
               </div>
 
               {/* Additional Attributes */}
-              {result.product_attributes.additional_attributes &&
+              {result.product_attributes?.additional_attributes &&
                Object.keys(result.product_attributes.additional_attributes).length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <h5 className="text-xs font-semibold text-gray-600 mb-2">Additional Attributes</h5>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {Object.entries(result.product_attributes.additional_attributes).map(([key, value]) => (
+                    {Object.entries(result.product_attributes!.additional_attributes!).map(([key, value]) => (
                       <div key={key} className="flex flex-col">
                         <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
                           {formatKey(key)}

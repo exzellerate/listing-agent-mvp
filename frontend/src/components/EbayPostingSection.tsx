@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import type { AnalysisResponse, PricingResponse } from '../types';
+import type { AnalysisResult, PricingData } from '../types';
 import EbayListingWizard from './EbayListingWizard';
 
 interface EbayPostingSectionProps {
-  result: AnalysisResponse;
-  pricingData?: PricingResponse;
+  result: AnalysisResult;
+  pricingData?: PricingData;
   analysisId?: number;
   imageFiles?: File[];
 }
@@ -31,7 +31,6 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 export function EbayPostingSection({ result, pricingData, analysisId, imageFiles = [] }: EbayPostingSectionProps) {
   const [authStatus, setAuthStatus] = useState<EbayAuthStatus | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
-  const [posting, setPosting] = useState(false);
   const [listingStatus, setListingStatus] = useState<EbayListingStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -130,92 +129,6 @@ export function EbayPostingSection({ result, pricingData, analysisId, imageFiles
       console.error('Failed to disconnect:', err);
       setError('Failed to disconnect eBay account');
     }
-  };
-
-  const handlePostToEbay = async () => {
-    if (!result) return;
-
-    try {
-      setPosting(true);
-      setError(null);
-      setListingStatus(null);
-
-      // Use suggested price from pricing data if available
-      const price = pricingData?.statistics?.suggested_price || 50.0;
-
-      // Prepare form data
-      const formData = new FormData();
-      if (analysisId) {
-        formData.append('analysis_id', analysisId.toString());
-      }
-      formData.append('title', result.suggested_title);
-      formData.append('description', result.suggested_description);
-      formData.append('price', price.toString());
-      formData.append('quantity', '1');
-      formData.append('condition', result.condition || 'USED_EXCELLENT');
-
-      const response = await fetch(`${API_BASE_URL}/api/ebay/listings/create`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to create listing');
-      }
-
-      const data = await response.json();
-      setListingStatus(data);
-
-      // Poll for listing status
-      if (data.listing_id) {
-        pollListingStatus(data.listing_id);
-      }
-    } catch (err: any) {
-      console.error('Failed to post to eBay:', err);
-      setError(err.message || 'Failed to create eBay listing');
-    } finally {
-      setPosting(false);
-    }
-  };
-
-  const pollListingStatus = async (listingId: number) => {
-    const maxAttempts = 30; // Poll for up to 30 seconds
-    let attempts = 0;
-
-    const poll = setInterval(async () => {
-      try {
-        attempts++;
-        const response = await fetch(`${API_BASE_URL}/api/ebay/listings/${listingId}`);
-
-        if (!response.ok) {
-          clearInterval(poll);
-          return;
-        }
-
-        const data = await response.json();
-
-        // Update status
-        setListingStatus((prev) => ({
-          ...prev,
-          status: data.status,
-          ebay_url: data.ebay_url,
-        }));
-
-        // Stop polling if published or failed
-        if (data.status === 'published' || data.status === 'failed') {
-          clearInterval(poll);
-        }
-
-        // Stop polling after max attempts
-        if (attempts >= maxAttempts) {
-          clearInterval(poll);
-        }
-      } catch (err) {
-        console.error('Failed to poll listing status:', err);
-        clearInterval(poll);
-      }
-    }, 1000); // Poll every second
   };
 
   if (loadingAuth) {
@@ -464,6 +377,8 @@ export function EbayPostingSection({ result, pricingData, analysisId, imageFiles
           ebay_category_keywords: result.ebay_category_keywords
         }}
         analysisId={analysisId}
+        ebayCategory={result.ebay_category}
+        ebayAspects={result.ebay_aspects}
         onSuccess={(listingId) => {
           setWizardOpen(false);
           setListingStatus({

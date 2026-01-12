@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
-import { AlertCircle, Loader2, Sparkles, CheckCircle, Eye, Brain, HelpCircle } from 'lucide-react';
-import { PredictedAspect, CategoryAspectResponse } from '../types';
-import { analyzeCategoryAspects } from '../services/api';
+import { AlertCircle, Loader2, Sparkles, CheckCircle } from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -19,15 +17,17 @@ interface SmartAspectFormProps {
   categoryId: string;
   categoryName: string;
   initialValues?: Record<string, string | string[]>;
+  prefilledValues?: Record<string, string | string[]>;
   onChange: (specifics: Record<string, string | string[]>) => void;
   errors?: Record<string, string>;
 }
 
 export default function SmartAspectForm({
-  analysisId,
+  analysisId: _analysisId,
   categoryId,
   categoryName,
   initialValues = {},
+  prefilledValues = {},
   onChange,
   errors = {}
 }: SmartAspectFormProps) {
@@ -35,10 +35,8 @@ export default function SmartAspectForm({
   const [loadingSpecifics, setLoadingSpecifics] = useState(false);
   const [specificsError, setSpecificsError] = useState<string | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string | string[]>>(initialValues);
-  const [predictions, setPredictions] = useState<Record<string, PredictedAspect>>({});
-  const [loadingPredictions, setLoadingPredictions] = useState(false);
-  const [predictionError, setPredictionError] = useState<string | null>(null);
   const [showAllFields, setShowAllFields] = useState(false);
+  const [prefilledCount, setPrefilledCount] = useState(0);
 
   useEffect(() => {
     setFormValues(initialValues);
@@ -51,12 +49,12 @@ export default function SmartAspectForm({
     }
   }, [categoryId]);
 
-  // Fetch predictions when item specifics are loaded
+  // Apply prefilled values when item specifics are loaded
   useEffect(() => {
-    if (analysisId && categoryId && itemSpecifics.length > 0) {
-      fetchPredictions();
+    if (itemSpecifics.length > 0 && prefilledValues && Object.keys(prefilledValues).length > 0) {
+      applyPrefilledValues();
     }
-  }, [analysisId, categoryId, itemSpecifics]);
+  }, [itemSpecifics, prefilledValues]);
 
   const fetchItemSpecifics = async () => {
     setLoadingSpecifics(true);
@@ -123,69 +121,54 @@ export default function SmartAspectForm({
     return null;
   };
 
-  const fetchPredictions = async () => {
-    setLoadingPredictions(true);
-    setPredictionError(null);
+  const applyPrefilledValues = () => {
+    console.log('📊 Applying prefilled values from analysis:', prefilledValues);
 
-    try {
-      const response: CategoryAspectResponse = await analyzeCategoryAspects({
-        analysis_id: analysisId,
-        category_id: categoryId
-      });
+    const validatedValues: Record<string, string | string[]> = { ...formValues };
+    let appliedCount = 0;
+    let skippedCount = 0;
 
-      console.log('📊 AI Predictions received:', response.aspect_analysis.predicted_aspects);
-      setPredictions(response.aspect_analysis.predicted_aspects);
+    Object.entries(prefilledValues).forEach(([aspectName, prefillValue]) => {
+      // Find the aspect definition to check if it has predefined values
+      // Try case-insensitive match for aspect name
+      const aspectDef = itemSpecifics.find(s =>
+        s.name.toLowerCase() === aspectName.toLowerCase()
+      );
 
-      // Smart auto-populate: validate against available options
-      const autoPopulated = response.aspect_analysis.auto_populate_fields;
-      console.log('🎯 Auto-populate candidates:', autoPopulated);
-
-      if (Object.keys(autoPopulated).length > 0) {
-        const validatedValues: Record<string, string | string[]> = { ...formValues };
-        let appliedCount = 0;
-        let skippedCount = 0;
-
-        Object.entries(autoPopulated).forEach(([aspectName, predictedValue]) => {
-          // Find the aspect definition to check if it has predefined values
-          const aspectDef = itemSpecifics.find(s => s.name === aspectName);
-
-          if (!aspectDef) {
-            console.warn(`⚠️ Aspect "${aspectName}" not found in item specifics`);
-            skippedCount++;
-            return;
-          }
-
-          // If aspect has predefined values, validate the predicted value
-          if (aspectDef.values && aspectDef.values.length > 0) {
-            const matchedValue = findMatchingValue(predictedValue as string, aspectDef.values);
-
-            if (matchedValue) {
-              validatedValues[aspectName] = matchedValue;
-              appliedCount++;
-              console.log(`✓ Applied: ${aspectName} = "${matchedValue}"`);
-            } else {
-              skippedCount++;
-              console.log(`✗ Skipped: ${aspectName} (no matching option for "${predictedValue}")`);
-            }
-          } else {
-            // Free text field - accept as-is
-            validatedValues[aspectName] = predictedValue;
-            appliedCount++;
-            console.log(`✓ Applied (free text): ${aspectName} = "${predictedValue}"`);
-          }
-        });
-
-        console.log(`📈 Auto-population summary: ${appliedCount} applied, ${skippedCount} skipped`);
-
-        setFormValues(validatedValues);
-        onChange(validatedValues);
+      if (!aspectDef) {
+        console.warn(`⚠️ Aspect "${aspectName}" not found in item specifics`);
+        skippedCount++;
+        return;
       }
-    } catch (err: any) {
-      console.error('Failed to fetch aspect predictions:', err);
-      setPredictionError(err.message || 'Failed to get AI predictions');
-    } finally {
-      setLoadingPredictions(false);
-    }
+
+      const actualAspectName = aspectDef.name; // Use the correct casing from the spec
+      const valueToApply = Array.isArray(prefillValue) ? prefillValue[0] : prefillValue;
+
+      // If aspect has predefined values, validate the prefilled value
+      if (aspectDef.values && aspectDef.values.length > 0) {
+        const matchedValue = findMatchingValue(valueToApply as string, aspectDef.values);
+
+        if (matchedValue) {
+          validatedValues[actualAspectName] = matchedValue;
+          appliedCount++;
+          console.log(`✓ Applied: ${actualAspectName} = "${matchedValue}"`);
+        } else {
+          skippedCount++;
+          console.log(`✗ Skipped: ${actualAspectName} (no matching option for "${valueToApply}")`);
+        }
+      } else {
+        // Free text field - accept as-is
+        validatedValues[actualAspectName] = valueToApply;
+        appliedCount++;
+        console.log(`✓ Applied (free text): ${actualAspectName} = "${valueToApply}"`);
+      }
+    });
+
+    console.log(`📈 Prefill summary: ${appliedCount} applied, ${skippedCount} skipped`);
+
+    setPrefilledCount(appliedCount);
+    setFormValues(validatedValues);
+    onChange(validatedValues);
   };
 
   const handleInputChange = (name: string, value: string | string[]) => {
@@ -197,65 +180,18 @@ export default function SmartAspectForm({
     onChange(newValues);
   };
 
-  const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 0.75) return 'text-green-600 bg-green-50 border-green-200';
-    if (confidence >= 0.5) return 'text-yellow-600 bg-yellow-50 border-yellow-200';
-    return 'text-gray-500 bg-gray-50 border-gray-200';
-  };
-
-  const getConfidenceIcon = (confidence: number) => {
-    if (confidence >= 0.75) return CheckCircle;
-    if (confidence >= 0.5) return Brain;
-    return HelpCircle;
-  };
-
-  const getSourceIcon = (source: string) => {
-    if (source === 'visible') return Eye;
-    if (source === 'inferred') return Brain;
-    return HelpCircle;
-  };
-
-  const getSourceLabel = (source: string) => {
-    if (source === 'visible') return 'Visible in image';
-    if (source === 'inferred') return 'Inferred by AI';
-    return 'Unknown source';
-  };
-
-  const renderPredictionBadge = (aspectName: string) => {
-    const prediction = predictions[aspectName];
-    if (!prediction || prediction.confidence === 0) return null;
-
-    const ConfidenceIcon = getConfidenceIcon(prediction.confidence);
-    const SourceIcon = getSourceIcon(prediction.source);
-
-    return (
-      <div className="mt-2 flex items-start gap-2">
-        <div className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border ${getConfidenceColor(prediction.confidence)}`}>
-          <ConfidenceIcon className="w-4 h-4 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium">
-                AI Prediction ({Math.round(prediction.confidence * 100)}%)
-              </span>
-              <SourceIcon className="w-3 h-3" title={getSourceLabel(prediction.source)} />
-            </div>
-            {prediction.value && (
-              <p className="text-sm mt-0.5 truncate" title={prediction.value}>
-                {prediction.value}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
+  const isFieldPrefilled = (fieldName: string): boolean => {
+    // Check if this field was prefilled from ebay_aspects
+    const prefillKey = Object.keys(prefilledValues).find(
+      key => key.toLowerCase() === fieldName.toLowerCase()
     );
+    return !!prefillKey && !!formValues[fieldName];
   };
 
   const renderInput = (specific: ItemSpecific) => {
     const value = formValues[specific.name] || (specific.cardinality === 'MULTI' ? [] : '');
-    const isRequired = specific.usage === 'REQUIRED';
     const hasError = errors[specific.name];
-    const prediction = predictions[specific.name];
-    const isAutoPopulated = prediction && prediction.confidence >= 0.75;
+    const isPrefilled = isFieldPrefilled(specific.name);
 
     // Single value with predefined options
     if (specific.cardinality === 'SINGLE' && specific.values && specific.values.length > 0) {
@@ -265,7 +201,7 @@ export default function SmartAspectForm({
             value={value as string}
             onChange={(e) => handleInputChange(specific.name, e.target.value)}
             className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors duration-200 ${
-              hasError ? 'border-red-500' : isAutoPopulated ? 'border-green-500 bg-green-50' : 'border-gray-300'
+              hasError ? 'border-red-500' : isPrefilled ? 'border-green-500 bg-green-50' : 'border-gray-300'
             }`}
           >
             <option value="">Select {specific.name}</option>
@@ -275,7 +211,12 @@ export default function SmartAspectForm({
               </option>
             ))}
           </select>
-          {renderPredictionBadge(specific.name)}
+          {isPrefilled && (
+            <div className="flex items-center gap-1 text-xs text-green-600">
+              <CheckCircle className="w-3 h-3" />
+              <span>Auto-filled from AI analysis</span>
+            </div>
+          )}
         </div>
       );
     }
@@ -289,10 +230,15 @@ export default function SmartAspectForm({
           onChange={(e) => handleInputChange(specific.name, e.target.value)}
           placeholder={`Enter ${specific.name}`}
           className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors duration-200 ${
-            hasError ? 'border-red-500' : isAutoPopulated ? 'border-green-500 bg-green-50' : 'border-gray-300'
+            hasError ? 'border-red-500' : isPrefilled ? 'border-green-500 bg-green-50' : 'border-gray-300'
           }`}
         />
-        {renderPredictionBadge(specific.name)}
+        {isPrefilled && (
+          <div className="flex items-center gap-1 text-xs text-green-600">
+            <CheckCircle className="w-3 h-3" />
+            <span>Auto-filled from AI analysis</span>
+          </div>
+        )}
       </div>
     );
   };
@@ -302,8 +248,6 @@ export default function SmartAspectForm({
   const recommendedFields = itemSpecifics.filter(s => s.usage === 'RECOMMENDED');
   const optionalFields = itemSpecifics.filter(s => s.usage === 'OPTIONAL');
 
-  // Count predicted fields
-  const predictedCount = Object.keys(predictions).filter(k => predictions[k].confidence >= 0.75).length;
   const totalRequired = requiredFields.length;
 
   // Show loading state while fetching item specifics
@@ -334,21 +278,11 @@ export default function SmartAspectForm({
           <Sparkles className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
             <h3 className="font-semibold text-gray-900 mb-1">
-              AI-Powered Item Specifics for {categoryName}
+              Item Specifics for {categoryName}
             </h3>
-            {loadingPredictions ? (
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Analyzing product images to predict aspect values...</span>
-              </div>
-            ) : predictionError ? (
-              <div className="flex items-center gap-2 text-sm text-red-600">
-                <AlertCircle className="w-4 h-4" />
-                <span>{predictionError}</span>
-              </div>
-            ) : predictedCount > 0 ? (
+            {prefilledCount > 0 ? (
               <p className="text-sm text-gray-600">
-                AI has auto-populated <span className="font-semibold text-green-600">{predictedCount}</span> fields with high confidence.
+                AI has auto-filled <span className="font-semibold text-green-600">{prefilledCount}</span> fields from image analysis.
                 {totalRequired > 0 && ` ${totalRequired} fields are required.`}
               </p>
             ) : (
@@ -444,8 +378,8 @@ export default function SmartAspectForm({
       {/* Help Text */}
       <div className="mt-6 p-3 bg-gray-50 rounded-lg border border-gray-200">
         <p className="text-xs text-gray-600">
-          <span className="font-medium">About AI Predictions:</span> Fields with green backgrounds were auto-filled by AI with high confidence (≥75%).
-          Yellow badges indicate moderate confidence predictions. Always review and verify all values before publishing.
+          <span className="font-medium">About Auto-Fill:</span> Fields with green backgrounds were auto-filled from AI image analysis.
+          Always review and verify all values before publishing.
         </p>
       </div>
     </div>

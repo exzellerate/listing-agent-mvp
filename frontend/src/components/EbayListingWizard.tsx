@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
-import { X, ChevronLeft, ChevronRight, Check, AlertCircle, Loader2 } from 'lucide-react';
-import CategorySelector from './CategorySelector';
+import { X, ChevronLeft, ChevronRight, Check, AlertCircle } from 'lucide-react';
 import SmartAspectForm from './SmartAspectForm';
 import BusinessPoliciesSelector from './BusinessPoliciesSelector';
-import { getCategoryRecommendations } from '../services/api';
-import { CategoryRecommendation } from '../types';
+import { EbayCategory } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -22,21 +20,16 @@ const WIZARD_STEPS: WizardStep[] = [
   },
   {
     number: 2,
-    title: 'Select Category',
-    description: 'Choose the best eBay category'
-  },
-  {
-    number: 3,
     title: 'Item Specifics',
     description: 'Add required product attributes'
   },
   {
-    number: 4,
+    number: 3,
     title: 'Policies',
     description: 'Set shipping & business policies'
   },
   {
-    number: 5,
+    number: 4,
     title: 'Preview & Publish',
     description: 'Review and publish your listing'
   }
@@ -54,6 +47,8 @@ interface EbayListingWizardProps {
     [key: string]: any;
   };
   analysisId?: number;
+  ebayCategory?: EbayCategory;
+  ebayAspects?: Record<string, string | string[]>;
   onSuccess: (listingId: string) => void;
 }
 
@@ -62,6 +57,8 @@ export default function EbayListingWizard({
   onClose,
   productData,
   analysisId,
+  ebayCategory,
+  ebayAspects,
   onSuccess
 }: EbayListingWizardProps) {
   const [currentStep, setCurrentStep] = useState(1);
@@ -98,12 +95,7 @@ export default function EbayListingWizard({
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-  const [validationState, setValidationState] = useState<Record<number, boolean>>({});
-
-  // Category recommendations state
-  const [categories, setCategories] = useState<CategoryRecommendation[]>([]);
-  const [loadingCategories, setLoadingCategories] = useState(false);
-  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [, setValidationState] = useState<Record<number, boolean>>({});
 
   // Initialize form data when product data changes
   useEffect(() => {
@@ -119,29 +111,16 @@ export default function EbayListingWizard({
     }
   }, [productData]);
 
-  // Fetch category recommendations when wizard opens
+  // Set category from ebayCategory prop when wizard opens
   useEffect(() => {
-    if (isOpen && analysisId && categories.length === 0) {
-      fetchCategories();
+    if (isOpen && ebayCategory && !formData.categoryId) {
+      setFormData(prev => ({
+        ...prev,
+        categoryId: ebayCategory.category_id,
+        categoryPath: ebayCategory.category_path
+      }));
     }
-  }, [isOpen, analysisId]);
-
-  const fetchCategories = async () => {
-    if (!analysisId) return;
-
-    setLoadingCategories(true);
-    setCategoryError(null);
-
-    try {
-      const categoryRecs = await getCategoryRecommendations(analysisId);
-      setCategories(categoryRecs);
-    } catch (err: any) {
-      console.error('Failed to fetch category recommendations:', err);
-      setCategoryError(err.message || 'Failed to load category recommendations');
-    } finally {
-      setLoadingCategories(false);
-    }
-  };
+  }, [isOpen, ebayCategory]);
 
   const validateStep = (step: number): boolean => {
     const newErrors: Record<string, string> = {};
@@ -162,16 +141,8 @@ export default function EbayListingWizard({
         }
         break;
 
-      case 2:
-        if (!formData.categoryId) {
-          newErrors.category = 'Please select a category';
-        }
-        break;
-
-      case 4:
-        // Business policies are optional - they'll be auto-created if not provided
-        // No validation needed for step 4
-        break;
+      // Steps 2-4: Item Specifics, Policies, Preview - no blocking validation
+      // Business policies are optional - they'll be auto-created if not provided
     }
 
     setErrors(newErrors);
@@ -267,13 +238,11 @@ export default function EbayListingWizard({
       case 1:
         return renderStep1();
       case 2:
-        return renderStep2();
+        return renderStep3(); // Item Specifics
       case 3:
-        return renderStep3();
+        return renderStep4(); // Policies
       case 4:
-        return renderStep4();
-      case 5:
-        return renderStep5();
+        return renderStep5(); // Preview & Publish
       default:
         return null;
     }
@@ -399,67 +368,6 @@ export default function EbayListingWizard({
     </div>
   );
 
-  const renderStep2 = () => {
-    // Show loading state while fetching categories
-    if (loadingCategories) {
-      return (
-        <div className="flex flex-col items-center justify-center py-12 space-y-4">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-          <div className="text-center">
-            <p className="text-sm font-medium text-gray-900">Loading Category Recommendations</p>
-            <p className="text-sm text-gray-600 mt-1">Analyzing your product to find the best eBay categories...</p>
-          </div>
-        </div>
-      );
-    }
-
-    // Show error state if category fetch failed
-    if (categoryError) {
-      return (
-        <div className="space-y-4">
-          <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium">Failed to load category recommendations</p>
-              <p className="text-sm mt-1">{categoryError}</p>
-              <button
-                onClick={fetchCategories}
-                className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors"
-              >
-                Retry
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-6">
-        <div className="mb-4">
-          <p className="text-sm text-gray-700 mb-2">
-            Select the most specific category that matches your product. Our AI has analyzed your images and recommended these categories based on confidence.
-          </p>
-        </div>
-        <CategorySelector
-          categories={categories}
-          selectedCategoryId={formData.categoryId}
-          onSelect={(categoryId, categoryName, categoryPath) => {
-            setFormData({ ...formData, categoryId, categoryPath });
-            setErrors({ ...errors, category: '' });
-          }}
-          loading={false}
-        />
-        {errors.category && (
-          <div className="flex items-center gap-2 text-red-600 text-sm mt-2">
-            <AlertCircle className="w-4 h-4" />
-            <span>{errors.category}</span>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const renderStep3 = () => {
     if (!analysisId) {
       return (
@@ -470,16 +378,14 @@ export default function EbayListingWizard({
       );
     }
 
-    // Extract category name from path (last segment)
-    const categoryName = formData.categoryPath.split(' > ').pop() || formData.categoryPath;
-
     return (
       <div className="space-y-6">
         <SmartAspectForm
           analysisId={analysisId}
           categoryId={formData.categoryId}
-          categoryName={categoryName}
+          categoryName={formData.categoryPath.split(' > ').pop() || formData.categoryPath}
           initialValues={formData.itemSpecifics}
+          prefilledValues={ebayAspects}
           onChange={(specifics) => setFormData({ ...formData, itemSpecifics: specifics })}
           errors={errors}
         />

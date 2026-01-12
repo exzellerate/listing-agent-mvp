@@ -64,7 +64,7 @@ export default function EbayCallback() {
           throw new Error(errorData.detail || 'Failed to exchange authorization code');
         }
 
-        const data = await response.json();
+        await response.json();
 
         setStatus('success');
         setMessage('Successfully connected to eBay! You can close this window.');

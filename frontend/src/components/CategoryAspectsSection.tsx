@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { AnalysisResult, CategoryRecommendation, CategoryAspects, FormattedAspect } from '../types';
+import type { AnalysisResult, FormattedAspect } from '../types';
 
 interface CategoryAspectsSectionProps {
   result: AnalysisResult;
@@ -15,6 +15,7 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
   );
   const [aspectValues, setAspectValues] = useState<AspectValues>({});
   const [showAllCategories, setShowAllCategories] = useState(false);
+  const [hasUserChangedCategory, setHasUserChangedCategory] = useState(false);
 
   // Get category suggestions
   const categorySuggestions = result.ebay_category_suggestions || [];
@@ -26,7 +27,10 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
     : null;
 
   // DEBUG: Log to console
-  console.log('CategoryAspectsSection - result:', result);
+  console.log('🔍 CategoryAspectsSection - FULL result object:', result);
+  console.log('🔍 CategoryAspectsSection - ebay_aspects:', result.ebay_aspects);
+  console.log('🔍 CategoryAspectsSection - typeof ebay_aspects:', typeof result.ebay_aspects);
+  console.log('🔍 CategoryAspectsSection - ebay_aspects keys:', result.ebay_aspects ? Object.keys(result.ebay_aspects) : 'N/A');
   console.log('CategoryAspectsSection - ebay_category_suggestions:', result.ebay_category_suggestions);
   console.log('CategoryAspectsSection - suggested_category_id:', result.suggested_category_id);
   console.log('CategoryAspectsSection - suggested_category_aspects:', result.suggested_category_aspects);
@@ -37,8 +41,105 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
     return null;
   }
 
+  // Prepopulate aspects with LLM-predicted values
+  const prepopulateAspects = () => {
+    console.log('🔍 prepopulateAspects called');
+    console.log('  - result.ebay_aspects:', result.ebay_aspects);
+    console.log('  - currentAspects:', currentAspects);
+
+    if (!result.ebay_aspects || !currentAspects) {
+      console.log('  ❌ Missing data - skipping prepopulation');
+      return;
+    }
+
+    const newValues: AspectValues = {};
+    const allAspects = [
+      ...currentAspects.aspects.required,
+      ...currentAspects.aspects.recommended,
+      ...currentAspects.aspects.optional
+    ];
+
+    console.log('  - Total aspects to check:', allAspects.length);
+    console.log('  - LLM aspect keys:', Object.keys(result.ebay_aspects));
+
+    // Iterate through all aspects for this category
+    allAspects.forEach((aspect) => {
+      // Case-insensitive search for matching LLM aspect
+      const llmAspectKey = Object.keys(result.ebay_aspects!).find(
+        (key) => key.toLowerCase() === aspect.name.toLowerCase()
+      );
+
+      if (llmAspectKey) {
+        const llmValue = result.ebay_aspects![llmAspectKey];
+        console.log(`  ✓ Match found: ${aspect.name} = ${JSON.stringify(llmValue)}`);
+
+        // For dropdown fields, validate that the value matches
+        if (aspect.input_type === 'dropdown' && aspect.values.length > 0) {
+          if (aspect.multi_select) {
+            // Multi-select dropdown: filter out values that don't match
+            const values = Array.isArray(llmValue) ? llmValue : [llmValue];
+            const matchedValues = values.filter((v) =>
+              aspect.values.some((av) => av.value.toLowerCase() === String(v).toLowerCase())
+            );
+            if (matchedValues.length > 0) {
+              newValues[aspect.name] = matchedValues;
+              console.log(`    → Set multi-select: ${aspect.name} = ${JSON.stringify(matchedValues)}`);
+            } else {
+              console.log(`    ⚠ No matching dropdown values for ${aspect.name}`);
+            }
+          } else {
+            // Single-select dropdown: only set if value matches
+            const valueStr = Array.isArray(llmValue) ? llmValue[0] : String(llmValue);
+            const matchedValue = aspect.values.find(
+              (av) => av.value.toLowerCase() === valueStr.toLowerCase()
+            );
+            if (matchedValue) {
+              newValues[aspect.name] = matchedValue.value;
+              console.log(`    → Set dropdown: ${aspect.name} = ${matchedValue.value}`);
+            } else {
+              console.log(`    ⚠ No matching dropdown value for ${aspect.name} (tried: ${valueStr})`);
+            }
+          }
+        } else {
+          // Free text field: use the value directly
+          newValues[aspect.name] = llmValue;
+          console.log(`    → Set text field: ${aspect.name} = ${JSON.stringify(llmValue)}`);
+        }
+      }
+    });
+
+    console.log('  📝 Final values to set:', newValues);
+    console.log('  📝 Number of values:', Object.keys(newValues).length);
+    setAspectValues(newValues);
+  };
+
+  // Prepopulate when top category aspects are loaded
+  useEffect(() => {
+    console.log('🔄 Prepopulation useEffect triggered');
+    console.log('  - hasUserChangedCategory:', hasUserChangedCategory);
+    console.log('  - selectedCategoryId:', selectedCategoryId);
+    console.log('  - result.suggested_category_id:', result.suggested_category_id);
+    console.log('  - currentAspects exists:', !!currentAspects);
+    console.log('  - result.ebay_aspects exists:', !!result.ebay_aspects);
+
+    if (
+      !hasUserChangedCategory &&
+      selectedCategoryId === result.suggested_category_id &&
+      currentAspects &&
+      result.ebay_aspects
+    ) {
+      console.log('  ✅ All conditions met - calling prepopulateAspects');
+      prepopulateAspects();
+    } else {
+      console.log('  ❌ Conditions not met - skipping prepopulation');
+    }
+  }, [currentAspects, result.ebay_aspects, hasUserChangedCategory]);
+
   const handleCategorySelect = (categoryId: string) => {
     setSelectedCategoryId(categoryId);
+    setHasUserChangedCategory(true);
+    // Clear all aspect values when user manually changes category
+    setAspectValues({});
     // TODO: In Phase 2, we'll fetch aspects for this category if not already loaded
   };
 

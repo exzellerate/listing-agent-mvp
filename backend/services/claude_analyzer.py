@@ -147,9 +147,27 @@ Consider this information when identifying the product, but still verify against
 
 """
 
-        prompt = f"""{context_section}Analyze this product image for a marketplace listing on {platform.upper()}.
+        prompt = f"""
+        
+        ## OUTPUT FORMAT (CRITICAL - READ FIRST)
+
+Your response must be ONLY a single valid JSON object.
+- No markdown headers (no ##, no **)
+- No step-by-step explanations
+- No code fences (no ```)
+- No text before or after the JSON
+- Start your response with {{ and end with }}
+
+Follow the analysis steps below INTERNALLY to gather information, 
+but DO NOT output the steps - only output the final JSON result.
+
+{context_section}Analyze this product image for a marketplace listing on {platform.upper()}.
 
 CRITICAL: Accurately identify what product is being LISTED for sale, find the correct eBay category, extract attributes from the image (priority) and web (fallback), and generate an optimized listing.
+
+---
+
+## INTERNAL ANALYSIS STEPS (do not output these)
 
 ## ROLE: Expert Marketplace Lister & Verification Specialist
 
@@ -157,7 +175,7 @@ CRITICAL: Accurately identify what product is being LISTED for sale, find the co
 
 You MUST use these tools in this exact order:
 1. **STEP 1-2**: Use `web_search` to verify product identity
-2. **STEP 7 (MANDATORY)**: Call `search_ebay_categories` with product keywords - this returns BOTH the category and all REQUIRED, RECOMMENDED and OPTIONAL item specifics. 
+2. **STEP 4 (MANDATORY)**: Call `search_ebay_categories` with product keywords - this returns BOTH the category and all REQUIRED, RECOMMENDED and OPTIONAL item specifics. 
 
 ## AVAILABLE TOOLS
 - `web_search`: Search the web for product info, pricing, verification
@@ -228,9 +246,98 @@ Evaluate what's included:
 - What is the PRIMARY item being sold?
 - Are there indicators this is complete vs. partial?
 
-## STEP 4: COMPREHENSIVE ATTRIBUTE EXTRACTION
+## STEP 4: FIND THE MOST RELEVANT ITEM CATEGORY AND ASPECTS
 
-Extract ALL visible/identifiable attributes from the image. Be thorough and comprehensive - capture everything you can observe or infer. Do NOT limit yourself to a predefined list.
+Before proceeding to JSON output, you MUST:
+1. ✅ Call `search_ebay_categories` tool - this returns both the category WITH all aspect definitions
+2. ✅ Use the returned aspect list to fill in ebay_aspects with simple name-value pairs in your JSON response
+3. ✅ ONLY use `web_search` if you need to research specific attribute VALUES (not the aspect list itself)
+
+### 4.1 Find the Right Category
+
+**⚠️ CRITICAL: Query Construction Rules**
+
+The query you send to `search_ebay_categories` determines category accuracy. Follow these rules EXACTLY:
+
+**Rule 1: PRODUCT TYPE FIRST**
+The first 1-2 words MUST describe what the item IS (noun), not who made it.
+- ✅ "earbuds wireless bluetooth" 
+- ❌ "Apple AirPods Pro" (brand-first causes wrong matches)
+
+**Rule 2: AVOID AMBIGUOUS MODEL TERMS**
+Words like "Pro", "Max", "Air", "Plus" match MANY product types. Never include them.
+- ✅ "wireless earbuds noise cancelling"
+- ❌ "AirPods Pro" (Pro matches MacBook Pro, iPad Pro, etc.)
+
+**Rule 3: BRAND GOES LAST (or omit entirely)**
+eBay categories are product-based, not brand-based. Brand is optional and always last.
+- ✅ "wireless earbuds bluetooth Apple"
+- ✅ "running shoes athletic mens Nike"
+- ❌ "Apple wireless earbuds"
+
+**Rule 4: USE CATEGORY-LEVEL TERMS, NOT PRODUCT NAMES**
+Think: "What shelf in the store would this be on?"
+- ✅ "earbuds" (category term)
+- ❌ "AirPods" (product name - too specific, may not match category vocabulary)
+
+**Query Template:**
+`"{{product_type}} {{subcategory}} {{key_attribute}} {{brand}}"`
+
+**Examples:**
+| Product | ❌ Bad Query | ✅ Good Query |
+|---------|-------------|---------------|
+| AirPods Pro 2nd Gen | "Apple AirPods Pro" | "earbuds wireless bluetooth noise cancelling" |
+| MacBook Pro 14" | "Apple MacBook Pro" | "laptop notebook computer 14 inch" |
+| Nike Air Max 90 | "Nike Air Max shoes" | "running shoes athletic sneakers mens" |
+| PS5 DualSense | "Sony PlayStation controller" | "game controller gamepad wireless PS5" |
+| Owala Water Bottle | "Owala FreeSip" | "water bottle insulated stainless steel" |
+
+Call the `search_ebay_categories` tool with your constructed query.
+Select the MOST SPECIFIC category from results (deepest category path) and it's associated aspects
+
+### 4.2 Review the aspects carefully
+The `search_ebay_categories` tool returns aspect definitions for each category, including:
+  - **Aspect name** (e.g., "Brand", "Color", "Type", "Material")
+  - **Input type** (dropdown or text)
+  - **Possible values** (for dropdown fields)
+
+  The tool response looks like this:
+  {{
+    "categories": [
+      {{
+        "category_id": "177006",
+        "category_name": "Vacuum Flasks & Mugs",
+        "aspects": {{
+          "required": [list of aspect objects with name, input_type, and possible values],
+          "recommended": [list of aspect objects],
+          "optional": [list of aspect objects],
+        }}
+      }}
+    ]
+  }}
+
+  Each aspect object contains:
+  - name: The aspect name (e.g., "Brand", "Color", "Material")
+  - input_type: Either "dropdown" or "text"
+  - values: Array of possible values for dropdown types (empty for text)
+
+
+ **Your Task:**
+  1. Review ALL aspects in both required and recommended lists
+  2. For REQUIRED aspects: Must fill or mark NEEDS_USER_INPUT
+  3. For RECOMMENDED aspects: Fill if data available
+  4. For OPTIONAL aspects: Fill if data available
+  4. For dropdown (input_type="dropdown"): Value MUST match one of the provided values exactly
+
+STEP 5: FIND ITEM SPECIFICS
+
+**Important:** You now have the complete list of aspects from the tool response. Focus on filling VALUES for those aspects, not searching for what aspects exist.
+ 
+Step 5.1 - Visible attributes 
+
+Extract ALL visible/identifiable attributes from the image based on the aspect information needed. Be thorough and comprehensive - capture everything you can observe or infer. Do NOT limit yourself to a predefined list.
+
+Here is a sample set of attributes that would assist in filling the ebay aspects available
 
 **Physical Attributes:**
 - Dimensions (estimate with method noted: "~32 inches based on drawer proportions")
@@ -265,9 +372,87 @@ Extract ALL visible/identifiable attributes from the image. Be thorough and comp
 - Completeness of set
 - Working status indicators
 
-**Store all observations in the `extracted_attributes` object as freeform key-value pairs.**
+Assign the relevant attribute to the most like ebay aspect
 
-## STEP 5: MARKETPLACE-OPTIMIZED TITLE CREATION
+Common mappings:
+| Extracted Attribute | Likely eBay Aspect |
+|---------------------|-------------------|
+| brand | Brand |
+| color, primary_color | Color |
+| material, primary_material | Material |
+| style, design_style | Style |
+| height, height_estimate | Item Height |
+| width, width_estimate | Item Width |
+| length, depth, depth_estimate | Item Length |
+| weight_estimate | Item Weight |
+| model, model_number | Model, MPN |
+| features | Features |
+| drawer_count | Number of Drawers |
+| shelf_count | Number of Shelves |
+
+Step 5.2 - SEARCH THE WEB FOR PENDING ATTRIBUTE VALUES
+
+  **Using Web Search for Aspect VALUES:**
+  - If an aspect value is NOT visible in the image (e.g., "Country of Manufacture", "Item Weight")
+  - AND it's a REQUIRED aspect
+  - THEN use `web_search` to find the specific VALUE (e.g., search "Owala water bottle country of origin")
+  - DO NOT use web_search to find what aspects exist - they're already provided by the tool
+
+**Step 5.3: Validate Value Format**
+
+For **FREE_TEXT** mode:
+- Use your extracted value directly
+- Ensure appropriate format (dimensions as numbers, not "32 inches")
+
+For **SELECTION_ONLY** mode:
+- Value MUST exactly match one of the `allowed_values`
+- If your observation doesn't match exactly, find the closest match
+- If no reasonable match exists, note in output
+
+For **MULTI** cardinality:
+- Can provide array of multiple values
+- List most important first
+
+**Step C: Assign Confidence and Source**
+
+For each filled aspect, provide:
+- `value`: The assigned value
+- `confidence`: 0.0-1.0 score
+- `source`: How you determined this value
+- `mode`: FREE_TEXT or SELECTION_ONLY
+- `matched`: (for SELECTION_ONLY) whether value matched allowed list
+
+**Confidence Guidelines:**
+| Confidence | Criteria |
+|------------|----------|
+| 0.95-1.0 | Directly visible, verified via search, exact match |
+| 0.85-0.94 | Clearly visible, high certainty |
+| 0.70-0.84 | Estimated with good reference, reasonable inference |
+| 0.50-0.69 | Educated guess, limited evidence |
+| Below 0.50 | Mark as NEEDS_USER_INPUT |
+
+### 7.4 Handle Missing/Unknown Aspects
+
+**For REQUIRED aspects you cannot determine:**
+```json
+"Item Weight": {{
+  "value": "NEEDS_USER_INPUT",
+  "reason": "Cannot estimate weight from image",
+  "seller_action": "Please weigh the item or check original listing",
+  "impact": "REQUIRED - listing will fail without this"
+}}
+```
+
+**For RECOMMENDED aspects you cannot determine:**
+```json
+"Country/Region of Manufacture": {{
+  "value": null,
+  "reason": "No origin markings visible",
+  "impact": "May reduce search visibility"
+}}
+```
+
+## STEP 6: MARKETPLACE-OPTIMIZED TITLE CREATION
 
 Create titles optimized for each major marketplace's algorithm and user behavior:
 
@@ -310,7 +495,7 @@ Before finalizing titles, consider:
 - Condition + Product: "Used PS5 Controller"
 - Use Case + Product: "Gaming Controller Wireless"
 
-## STEP 6: SEO-OPTIMIZED DESCRIPTION CREATION
+## STEP 7: SEO-OPTIMIZED DESCRIPTION CREATION
 
 **Description Structure (Optimized for Search & Conversion):**
 
@@ -419,170 +604,8 @@ Use the following conversion
 - **All caps:** "BRAND NEW" (use "Brand New" instead)
 - **Shipping Commitments:** "Next-Day Shipping" or "Ships Free"
 
-## STEP 7: eBAY CATEGORY & ASPECTS
 
-Before proceeding to JSON output, you MUST:
-1. ✅ Call `search_ebay_categories` tool - this returns both the category WITH all aspect definitions
-2. ✅ Use the returned aspect list to fill in ebay_aspects with simple name-value pairs in your JSON response
-3. ✅ ONLY use `web_search` if you need to research specific attribute VALUES (not the aspect list itself)
-
-### 7.1 Find the Right Category
-
-**⚠️ CRITICAL: Query Construction Rules**
-
-The query you send to `search_ebay_categories` determines category accuracy. Follow these rules EXACTLY:
-
-**Rule 1: PRODUCT TYPE FIRST**
-The first 1-2 words MUST describe what the item IS (noun), not who made it.
-- ✅ "earbuds wireless bluetooth" 
-- ❌ "Apple AirPods Pro" (brand-first causes wrong matches)
-
-**Rule 2: AVOID AMBIGUOUS MODEL TERMS**
-Words like "Pro", "Max", "Air", "Plus" match MANY product types. Never include them.
-- ✅ "wireless earbuds noise cancelling"
-- ❌ "AirPods Pro" (Pro matches MacBook Pro, iPad Pro, etc.)
-
-**Rule 3: BRAND GOES LAST (or omit entirely)**
-eBay categories are product-based, not brand-based. Brand is optional and always last.
-- ✅ "wireless earbuds bluetooth Apple"
-- ✅ "running shoes athletic mens Nike"
-- ❌ "Apple wireless earbuds"
-
-**Rule 4: USE CATEGORY-LEVEL TERMS, NOT PRODUCT NAMES**
-Think: "What shelf in the store would this be on?"
-- ✅ "earbuds" (category term)
-- ❌ "AirPods" (product name - too specific, may not match category vocabulary)
-
-**Query Template:**
-`"{{product_type}} {{subcategory}} {{key_attribute}} {{brand}}"`
-
-**Examples:**
-| Product | ❌ Bad Query | ✅ Good Query |
-|---------|-------------|---------------|
-| AirPods Pro 2nd Gen | "Apple AirPods Pro" | "earbuds wireless bluetooth noise cancelling" |
-| MacBook Pro 14" | "Apple MacBook Pro" | "laptop notebook computer 14 inch" |
-| Nike Air Max 90 | "Nike Air Max shoes" | "running shoes athletic sneakers mens" |
-| PS5 DualSense | "Sony PlayStation controller" | "game controller gamepad wireless PS5" |
-| Owala Water Bottle | "Owala FreeSip" | "water bottle insulated stainless steel" |
-
-Call the `search_ebay_categories` tool with your constructed query.
-Select the MOST SPECIFIC category from results (deepest category path).
-
-### 7.2 Get Category-Specific Aspects
-The `search_ebay_categories` tool returns aspect definitions for each category, including:
-  - **Aspect name** (e.g., "Brand", "Color", "Type", "Material")
-  - **Input type** (dropdown or text)
-  - **Possible values** (for dropdown fields)
-
-  The tool response looks like this:
-  {{
-    "categories": [
-      {{
-        "category_id": "177006",
-        "category_name": "Vacuum Flasks & Mugs",
-        "aspects": {{
-          "required": [list of aspect objects with name, input_type, and possible values],
-          "recommended": [list of aspect objects]
-        }}
-      }}
-    ]
-  }}
-
-  Each aspect object contains:
-  - name: The aspect name (e.g., "Brand", "Color", "Material")
-  - input_type: Either "dropdown" or "text"
-  - values: Array of possible values for dropdown types (empty for text)
-
-
- **Your Task:**
-  1. Review ALL aspects in both required and recommended lists
-  2. For REQUIRED aspects: Must fill or mark NEEDS_USER_INPUT
-  3. For RECOMMENDED aspects: Fill if data available
-  4. For dropdown (input_type="dropdown"): Value MUST match one of the provided values exactly
-
-**Step A: Find Matching Data**
-
-**Important:** You now have the complete list of aspects from the tool response. Focus on filling VALUES for those aspects, not searching for what aspects exist.
- 
-Check your `extracted_attributes` from Step 4 for relevant data.
-
-Common mappings:
-| Extracted Attribute | Likely eBay Aspect |
-|---------------------|-------------------|
-| brand | Brand |
-| color, primary_color | Color |
-| material, primary_material | Material |
-| style, design_style | Style |
-| height, height_estimate | Item Height |
-| width, width_estimate | Item Width |
-| length, depth, depth_estimate | Item Length |
-| weight_estimate | Item Weight |
-| model, model_number | Model, MPN |
-| features | Features |
-| drawer_count | Number of Drawers |
-| shelf_count | Number of Shelves |
-
-  **Using Web Search for Aspect VALUES:**
-  - If an aspect value is NOT visible in the image (e.g., "Country of Manufacture", "Item Weight")
-  - AND it's a REQUIRED aspect
-  - THEN use `web_search` to find the specific VALUE (e.g., search "Owala water bottle country of origin")
-  - Do NOT use web_search to find what aspects exist - they're already provided by the tool
-
-**Step B: Validate Value Format**
-
-For **FREE_TEXT** mode:
-- Use your extracted value directly
-- Ensure appropriate format (dimensions as numbers, not "32 inches")
-
-For **SELECTION_ONLY** mode:
-- Value MUST exactly match one of the `allowed_values`
-- If your observation doesn't match exactly, find the closest match
-- If no reasonable match exists, note in output
-
-For **MULTI** cardinality:
-- Can provide array of multiple values
-- List most important first
-
-**Step C: Assign Confidence and Source**
-
-For each filled aspect, provide:
-- `value`: The assigned value
-- `confidence`: 0.0-1.0 score
-- `source`: How you determined this value
-- `mode`: FREE_TEXT or SELECTION_ONLY
-- `matched`: (for SELECTION_ONLY) whether value matched allowed list
-
-**Confidence Guidelines:**
-| Confidence | Criteria |
-|------------|----------|
-| 0.95-1.0 | Directly visible, verified via search, exact match |
-| 0.85-0.94 | Clearly visible, high certainty |
-| 0.70-0.84 | Estimated with good reference, reasonable inference |
-| 0.50-0.69 | Educated guess, limited evidence |
-| Below 0.50 | Mark as NEEDS_USER_INPUT |
-
-### 7.4 Handle Missing/Unknown Aspects
-
-**For REQUIRED aspects you cannot determine:**
-```json
-"Item Weight": {{
-  "value": "NEEDS_USER_INPUT",
-  "reason": "Cannot estimate weight from image",
-  "seller_action": "Please weigh the item or check original listing",
-  "impact": "REQUIRED - listing will fail without this"
-}}
-```
-
-**For RECOMMENDED aspects you cannot determine:**
-```json
-"Country/Region of Manufacture": {{
-  "value": null,
-  "reason": "No origin markings visible",
-  "impact": "May reduce search visibility"
-}}
-```
-
-## ANALYSIS OUTPUT
+## FINAL JSON OBJECT
 
 Provide your analysis in JSON format:
 
@@ -662,9 +685,7 @@ Provide your analysis in JSON format:
   }}}},
   
   "ebay_aspects": {{
-    # Simple name-value pairs for eBay item specifics
-    # Include aspects you can determine from the image or research
-    # Use your best judgment for aspect names based on the category
+    # Simple name-value pairs for eBay item aspects and their corresponding values
     "Brand": "West Elm",
     "Type": "Sideboard",
     "Style": "Mid-Century Modern",
@@ -726,8 +747,8 @@ Use the reasoning field to explain your identification logic.
 
 ## CRITICAL REMINDERS
 
-1. **ALWAYS call `search_ebay_categories`** - Do not guess categories from training data
-2. **Stay in context** - Your image observations in Step 4 carry through to Step 7
+1. **ALWAYS call web_search for STEP 1 and 2
+2. **ALWAYS call `search_ebay_categories`** - Do not guess categories from training data
 3. **Confidence scores must be honest** - Don't inflate confidence on estimates
 
 CRITICAL OUTPUT INSTRUCTIONS: Your response must be ONLY the final JSON Object.
@@ -953,7 +974,10 @@ CRITICAL OUTPUT INSTRUCTIONS: Your response must be ONLY the final JSON Object.
             reasoning=primary_analysis.get("reasoning"),
             ebay_category_keywords=primary_analysis.get("ebay_category_keywords", []),
             # Product attributes for marketplace requirements
-            product_attributes=primary_analysis.get("product_attributes")
+            product_attributes=primary_analysis.get("product_attributes"),
+            # LLM-predicted eBay category and aspects
+            ebay_category=primary_analysis.get("ebay_category"),
+            ebay_aspects=primary_analysis.get("ebay_aspects")
         )
 
         # Enrich eBay aspects with offline metadata if category and aspects are present

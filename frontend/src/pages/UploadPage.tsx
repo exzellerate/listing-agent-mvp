@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Platform, AnalysisResult, UserAction } from '../types';
+import { Platform, AnalysisResult } from '../types';
 import { analyzeImages, checkHealth, confirmAnalysis, createDraft, getDraft, APIError } from '../services/api';
 import ImageUpload from '../components/ImageUpload';
 import LoadingState from '../components/LoadingState';
@@ -28,7 +28,7 @@ function UploadPage() {
   const [backendHealthy, setBackendHealthy] = useState<boolean | null>(null);
   const [selectedPrice, setSelectedPrice] = useState<number | undefined>(undefined);
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
-  const [correctionAction, setCorrectionAction] = useState<'edited' | 'rejected'>('edited');
+  const [correctionAction] = useState<'edited' | 'rejected'>('edited');
   const [savingDraft, setSavingDraft] = useState(false);
   const [loadedFromDraft, setLoadedFromDraft] = useState(false);
   const [ebayEnvironment, setEbayEnvironment] = useState<{ mode: string; isProduction: boolean } | null>(null);
@@ -219,31 +219,6 @@ function UploadPage() {
     setSelectedPrice(price);
   };
 
-  const handleFeedback = async (action: UserAction) => {
-    if (!result?.analysis_id) {
-      console.error('No analysis ID available for feedback');
-      return;
-    }
-
-    try {
-      console.log(`Sending feedback: ${action} for analysis ${result.analysis_id}`);
-
-      await confirmAnalysis({
-        analysis_id: result.analysis_id,
-        user_action: action,
-      });
-
-      console.log('Feedback sent successfully');
-    } catch (err) {
-      console.error('Failed to send feedback:', err);
-      // Don't show error to user - feedback is optional
-    }
-  };
-
-  const handleRequestCorrection = (action: 'edited' | 'rejected') => {
-    setCorrectionAction(action);
-    setShowCorrectionModal(true);
-  };
 
   const handleSubmitCorrection = async (corrections: CorrectionData) => {
     if (!result?.analysis_id) {
@@ -308,12 +283,12 @@ function UploadPage() {
         price: selectedPrice,
         platform: platform,
         product_name: result.product_name,
-        brand: result.brand,
-        category: result.category,
+        brand: result.brand ?? undefined,
+        category: result.category ?? undefined,
         condition: result.condition,
-        color: result.color,
-        material: result.material,
-        model_number: result.model_number,
+        color: result.color ?? undefined,
+        material: result.material ?? undefined,
+        model_number: result.model_number ?? undefined,
         features: result.key_features,
         image_paths: imagePaths,
       });

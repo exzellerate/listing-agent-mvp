@@ -117,6 +117,12 @@ export async function analyzeImages(
 
     const data = await response.json();
 
+    // DEBUG: Log API response
+    console.log('🔍 API RESPONSE - Full data:', data);
+    console.log('🔍 API RESPONSE - ebay_aspects:', data.ebay_aspects);
+    console.log('🔍 API RESPONSE - typeof ebay_aspects:', typeof data.ebay_aspects);
+    console.log('🔍 API RESPONSE - ebay_aspects keys:', data.ebay_aspects ? Object.keys(data.ebay_aspects) : 'N/A');
+
     // Validate response structure
     if (!data.product_name || !data.suggested_title || !data.suggested_description) {
       throw new APIError('Invalid response from server: Missing required fields', 500);
