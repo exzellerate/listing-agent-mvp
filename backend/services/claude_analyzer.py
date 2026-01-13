@@ -6,6 +6,7 @@ import time
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 from anthropic import Anthropic
+from langsmith import traceable
 from models import AnalysisResponse, Platform, ImageAnalysis, FieldDiscrepancy
 from utils.performance_logger import PerformanceTracker
 from services.ebay.category_matcher import EbayCategoryMatcher
@@ -900,6 +901,7 @@ CRITICAL OUTPUT INSTRUCTIONS: Your response must be ONLY the final JSON Object.
 
         return consensus, discrepancies, overall_confidence, verification_notes
 
+    @traceable(name="analyze_images")
     async def analyze_images(
         self,
         images_data: List[Tuple[bytes, str, ...]],

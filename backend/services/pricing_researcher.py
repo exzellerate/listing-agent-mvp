@@ -5,6 +5,7 @@ import statistics
 import time
 from typing import List, Dict, Any
 from anthropic import Anthropic
+from langsmith import traceable
 from models import PricingResponse, PricingStatistics, CompetitorListing
 from utils.performance_logger import PerformanceTracker
 
@@ -144,6 +145,7 @@ Remember:
 
         return prompt
 
+    @traceable(name="research_pricing")
     async def research_pricing(
         self,
         product_name: str,
