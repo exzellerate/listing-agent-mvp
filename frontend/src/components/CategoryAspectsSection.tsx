@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import type { AnalysisResult, FormattedAspect } from '../types';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 interface CategoryAspectsSectionProps {
   result: AnalysisResult;
 }
@@ -9,54 +11,207 @@ interface AspectValues {
   [aspectName: string]: string | string[];
 }
 
+// eBay API response format for item specifics
+interface EbayItemSpecific {
+  name: string;
+  cardinality: 'SINGLE' | 'MULTI';
+  usage: 'REQUIRED' | 'RECOMMENDED' | 'OPTIONAL';
+  values?: string[];
+  max_values?: number;
+  constraint?: 'SELECTION_ONLY' | 'FREE_TEXT';
+}
+
+// Category suggestion format for display
+interface CategorySuggestion {
+  category_id: string;
+  category_name: string;
+  category_path: string;
+  confidence: number;
+  reasoning: string;
+}
+
+// Structured aspects data for form rendering
+interface FormattedAspectsData {
+  category_name: string;
+  counts: {
+    required: number;
+    recommended: number;
+    optional: number;
+  };
+  aspects: {
+    required: FormattedAspect[];
+    recommended: FormattedAspect[];
+    optional: FormattedAspect[];
+  };
+}
+
 export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) {
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
-    result.suggested_category_id || null
-  );
+  // Build category suggestions from result.ebay_category (primary + alternatives)
+  const categorySuggestions: CategorySuggestion[] = [];
+
+  if (result.ebay_category) {
+    // Add primary category
+    categorySuggestions.push({
+      category_id: result.ebay_category.category_id,
+      category_name: result.ebay_category.category_name,
+      category_path: result.ebay_category.category_path,
+      confidence: result.ebay_category.selection_confidence || 0.9,
+      reasoning: result.ebay_category.selection_reasoning || 'AI-selected category'
+    });
+
+    // Add alternatives if available
+    if (result.ebay_category.alternatives_considered) {
+      result.ebay_category.alternatives_considered.forEach(alt => {
+        categorySuggestions.push({
+          category_id: alt.category_id,
+          category_name: alt.category_name,
+          category_path: alt.category_name, // Use name as path since full path not available
+          confidence: 0.7,
+          reasoning: alt.rejection_reason || 'Alternative category'
+        });
+      });
+    }
+  }
+
+  const hasCategories = categorySuggestions.length > 0;
+  const primaryCategoryId = result.ebay_category?.category_id || null;
+
+  // State
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(primaryCategoryId);
   const [aspectValues, setAspectValues] = useState<AspectValues>({});
   const [showAllCategories, setShowAllCategories] = useState(false);
   const [hasUserChangedCategory, setHasUserChangedCategory] = useState(false);
 
-  // Get category suggestions
-  const categorySuggestions = result.ebay_category_suggestions || [];
-  const hasCategories = categorySuggestions.length > 0;
-
-  // Get aspects for selected category
-  const currentAspects = selectedCategoryId === result.suggested_category_id
-    ? result.suggested_category_aspects
-    : null;
+  // New state for fetched aspects from eBay API
+  const [fetchedAspects, setFetchedAspects] = useState<FormattedAspectsData | null>(null);
+  const [loadingAspects, setLoadingAspects] = useState(false);
+  const [aspectsError, setAspectsError] = useState<string | null>(null);
 
   // DEBUG: Log to console
-  console.log('🔍 CategoryAspectsSection - FULL result object:', result);
+  console.log('🔍 CategoryAspectsSection - ebay_category:', result.ebay_category);
+  console.log('🔍 CategoryAspectsSection - Built categorySuggestions:', categorySuggestions);
+  console.log('🔍 CategoryAspectsSection - primaryCategoryId:', primaryCategoryId);
   console.log('🔍 CategoryAspectsSection - ebay_aspects:', result.ebay_aspects);
-  console.log('🔍 CategoryAspectsSection - typeof ebay_aspects:', typeof result.ebay_aspects);
-  console.log('🔍 CategoryAspectsSection - ebay_aspects keys:', result.ebay_aspects ? Object.keys(result.ebay_aspects) : 'N/A');
-  console.log('CategoryAspectsSection - ebay_category_suggestions:', result.ebay_category_suggestions);
-  console.log('CategoryAspectsSection - suggested_category_id:', result.suggested_category_id);
-  console.log('CategoryAspectsSection - suggested_category_aspects:', result.suggested_category_aspects);
-  console.log('CategoryAspectsSection - hasCategories:', hasCategories);
 
   if (!hasCategories) {
     console.log('CategoryAspectsSection - No categories found, returning null');
     return null;
   }
 
-  // Prepopulate aspects with LLM-predicted values
+  // Transform eBay API response to FormattedAspect format
+  const transformApiResponse = (
+    apiAspects: EbayItemSpecific[],
+    categoryName: string
+  ): FormattedAspectsData => {
+    const required: FormattedAspect[] = [];
+    const recommended: FormattedAspect[] = [];
+    const optional: FormattedAspect[] = [];
+
+    apiAspects.forEach(spec => {
+      const formattedAspect: FormattedAspect = {
+        name: spec.name,
+        required: spec.usage === 'REQUIRED',
+        input_type: (spec.constraint === 'SELECTION_ONLY' && spec.values && spec.values.length > 0)
+          ? 'dropdown'
+          : 'text',
+        values: (spec.values || []).map(v => ({ value: v })),
+        multi_select: spec.cardinality === 'MULTI',
+        max_length: undefined,
+        // Additional required properties
+        data_type: 'string',
+        usage: spec.usage,
+        enabled_for_variations: false,
+        applicable_to: ['ITEM']
+      };
+
+      if (spec.usage === 'REQUIRED') {
+        required.push(formattedAspect);
+      } else if (spec.usage === 'RECOMMENDED') {
+        recommended.push(formattedAspect);
+      } else {
+        optional.push(formattedAspect);
+      }
+    });
+
+    return {
+      category_name: categoryName,
+      counts: {
+        required: required.length,
+        recommended: recommended.length,
+        optional: optional.length
+      },
+      aspects: { required, recommended, optional }
+    };
+  };
+
+  // Fetch item specifics from eBay API when category changes
+  useEffect(() => {
+    if (!selectedCategoryId) {
+      setFetchedAspects(null);
+      return;
+    }
+
+    const fetchAspects = async () => {
+      setLoadingAspects(true);
+      setAspectsError(null);
+
+      try {
+        console.log(`🔄 Fetching item specifics for category: ${selectedCategoryId}`);
+        const response = await fetch(
+          `${API_BASE_URL}/api/ebay/categories/${selectedCategoryId}/item-specifics`
+        );
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            console.log('Item specifics endpoint not available - skipping');
+            setFetchedAspects(null);
+            setLoadingAspects(false);
+            return;
+          }
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Failed to fetch item specifics');
+        }
+
+        const data = await response.json();
+        const apiAspects: EbayItemSpecific[] = data.item_specifics || [];
+
+        // Get category name from suggestions
+        const category = categorySuggestions.find(c => c.category_id === selectedCategoryId);
+        const categoryName = category?.category_name || 'Selected Category';
+
+        // Transform to FormattedAspectsData
+        const formatted = transformApiResponse(apiAspects, categoryName);
+        console.log('✅ Fetched and transformed aspects:', formatted);
+        setFetchedAspects(formatted);
+
+      } catch (err: any) {
+        console.error('Failed to fetch item specifics:', err);
+        setAspectsError(err.message || 'Failed to load item specifics');
+        setFetchedAspects(null);
+      } finally {
+        setLoadingAspects(false);
+      }
+    };
+
+    fetchAspects();
+  }, [selectedCategoryId]);
+
+  // Prepopulate aspects with LLM-predicted values (only for primary category)
   const prepopulateAspects = () => {
     console.log('🔍 prepopulateAspects called');
     console.log('  - result.ebay_aspects:', result.ebay_aspects);
-    console.log('  - currentAspects:', currentAspects);
+    console.log('  - fetchedAspects:', fetchedAspects);
 
-    if (!result.ebay_aspects || !currentAspects) {
+    if (!result.ebay_aspects || !fetchedAspects) {
       console.log('  ❌ Missing data - skipping prepopulation');
       return;
     }
 
     const newValues: AspectValues = {};
     const allAspects = [
-      ...currentAspects.aspects.required,
-      ...currentAspects.aspects.recommended,
-      ...currentAspects.aspects.optional
+      ...fetchedAspects.aspects.required,
+      ...fetchedAspects.aspects.recommended,
+      ...fetchedAspects.aspects.optional
     ];
 
     console.log('  - Total aspects to check:', allAspects.length);
@@ -113,19 +268,20 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
     setAspectValues(newValues);
   };
 
-  // Prepopulate when top category aspects are loaded
+  // Prepopulate when aspects are fetched (only for primary category, not user-changed)
   useEffect(() => {
     console.log('🔄 Prepopulation useEffect triggered');
     console.log('  - hasUserChangedCategory:', hasUserChangedCategory);
     console.log('  - selectedCategoryId:', selectedCategoryId);
-    console.log('  - result.suggested_category_id:', result.suggested_category_id);
-    console.log('  - currentAspects exists:', !!currentAspects);
+    console.log('  - primaryCategoryId:', primaryCategoryId);
+    console.log('  - fetchedAspects exists:', !!fetchedAspects);
     console.log('  - result.ebay_aspects exists:', !!result.ebay_aspects);
 
+    // Only prepopulate for the primary category (not when user manually changes)
     if (
       !hasUserChangedCategory &&
-      selectedCategoryId === result.suggested_category_id &&
-      currentAspects &&
+      selectedCategoryId === primaryCategoryId &&
+      fetchedAspects &&
       result.ebay_aspects
     ) {
       console.log('  ✅ All conditions met - calling prepopulateAspects');
@@ -133,7 +289,7 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
     } else {
       console.log('  ❌ Conditions not met - skipping prepopulation');
     }
-  }, [currentAspects, result.ebay_aspects, hasUserChangedCategory]);
+  }, [fetchedAspects, result.ebay_aspects, hasUserChangedCategory]);
 
   const handleCategorySelect = (categoryId: string) => {
     setSelectedCategoryId(categoryId);
@@ -306,30 +462,52 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
         )}
       </div>
 
+      {/* Loading State */}
+      {loadingAspects && selectedCategoryId && (
+        <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-center">
+          <div className="flex items-center justify-center gap-3">
+            <svg className="animate-spin h-5 w-5 text-blue-600" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p className="text-blue-800 font-medium">
+              Loading item specifics for selected category...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Error State */}
+      {aspectsError && selectedCategoryId && (
+        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6 text-center">
+          <p className="text-red-800 font-medium">{aspectsError}</p>
+        </div>
+      )}
+
       {/* Aspect Fields */}
-      {currentAspects && selectedCategoryId && (
+      {fetchedAspects && selectedCategoryId && !loadingAspects && (
         <div className="bg-white border-2 border-gray-200 rounded-xl p-6 shadow-md">
           <div className="flex items-center justify-between mb-6">
             <h3 className="font-bold text-xl text-gray-900">
-              Item Specifics for {currentAspects.category_name}
+              Item Specifics for {fetchedAspects.category_name}
             </h3>
             <div className="text-sm text-gray-600">
               <span className="font-semibold text-red-600">
-                {currentAspects.counts.required} Required
+                {fetchedAspects.counts.required} Required
               </span>
               <span className="mx-2">•</span>
               <span className="font-semibold text-yellow-600">
-                {currentAspects.counts.recommended} Recommended
+                {fetchedAspects.counts.recommended} Recommended
               </span>
               <span className="mx-2">•</span>
               <span className="text-gray-500">
-                {currentAspects.counts.optional} Optional
+                {fetchedAspects.counts.optional} Optional
               </span>
             </div>
           </div>
 
           {/* Required Aspects */}
-          {currentAspects.aspects.required.length > 0 && (
+          {fetchedAspects.aspects.required.length > 0 && (
             <div className="mb-6">
               <h4 className="font-bold text-md text-red-600 mb-3 flex items-center gap-2">
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -338,7 +516,7 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
                 Required Fields
               </h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {currentAspects.aspects.required.map((aspect, idx) => (
+                {fetchedAspects.aspects.required.map((aspect, idx) => (
                   <div key={idx}>
                     {renderAspectInput(aspect)}
                   </div>
@@ -348,7 +526,7 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
           )}
 
           {/* Recommended Aspects */}
-          {currentAspects.aspects.recommended.length > 0 && (
+          {fetchedAspects.aspects.recommended.length > 0 && (
             <div className="mb-6">
               <h4 className="font-bold text-md text-yellow-600 mb-3 flex items-center gap-2">
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -357,7 +535,7 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
                 Recommended Fields
               </h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {currentAspects.aspects.recommended.map((aspect, idx) => (
+                {fetchedAspects.aspects.recommended.map((aspect, idx) => (
                   <div key={idx}>
                     {renderAspectInput(aspect)}
                   </div>
@@ -367,16 +545,16 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
           )}
 
           {/* Optional Aspects (collapsed by default) */}
-          {currentAspects.aspects.optional.length > 0 && (
+          {fetchedAspects.aspects.optional.length > 0 && (
             <details className="group">
               <summary className="cursor-pointer font-bold text-md text-gray-600 mb-3 flex items-center gap-2 hover:text-gray-800">
                 <svg className="w-5 h-5 transform group-open:rotate-90 transition-transform" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
                 </svg>
-                Optional Fields ({currentAspects.counts.optional})
+                Optional Fields ({fetchedAspects.counts.optional})
               </summary>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-                {currentAspects.aspects.optional.map((aspect, idx) => (
+                {fetchedAspects.aspects.optional.map((aspect, idx) => (
                   <div key={idx}>
                     {renderAspectInput(aspect)}
                   </div>
@@ -384,14 +562,6 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
               </div>
             </details>
           )}
-        </div>
-      )}
-
-      {!currentAspects && selectedCategoryId && (
-        <div className="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-6 text-center">
-          <p className="text-yellow-800 font-medium">
-            Loading aspect fields for selected category...
-          </p>
         </div>
       )}
     </div>

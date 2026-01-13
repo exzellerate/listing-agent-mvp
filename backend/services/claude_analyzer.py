@@ -208,14 +208,14 @@ Based on what's visible, determine what product is being listed:
    * *How:* Search descriptive terms (e.g., "Nike sneaker pink hole in midsole", "Apple white earbuds charging case")
    * *Sources:* StockX, eBay, Amazon, manufacturer websites
 
-4. **The "Brand/Model" Check:** If you can identify brand and partial model info, search to get the complete official name.
+4. **The "Brand/Model" Check:** If you can identify brand and partial model info, use web search to get the complete official name.
    * *Goal:* Get the exact official product name, colorway, and year/variant
    * *How:* Search "Brand + Product Type + Color/Features" (e.g., "Nike Air Force 1 hot pink", "Apple AirPods Pro 2nd generation")
 
 5. **The "Comp" Check:** Look for "Sold" listings if possible to gauge if this is a "Rare" or "Common" item.
    * *How:* Search "product name sold eBay" or "product name sold StockX"
 
-**IMPORTANT:** Always use web search to verify product names, model numbers, and official colorways. Don't guess - search and confirm.
+**IMPORTANT:** ALWAYS use web search to verify product names, model numbers, and official colorways. Don't guess - search and confirm.
 
 ## STEP 3: COMPLETENESS ASSESSMENT
 Evaluate what's included:
