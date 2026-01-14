@@ -908,7 +908,7 @@ CRITICAL OUTPUT INSTRUCTIONS: Your response must be ONLY the final JSON Object.
         platform: Platform = "ebay",
         user_context: Optional[str] = None
     ) -> AnalysisResponse:
-        """Analyze multiple product images and cross-reference results.
+        """Analyze multiple product images in a single API call.
 
         Args:
             images_data: List of tuples containing (image_bytes, mime_type, [optional_url])
@@ -916,7 +916,7 @@ CRITICAL OUTPUT INSTRUCTIONS: Your response must be ONLY the final JSON Object.
             user_context: Optional user-provided context to improve analysis accuracy
 
         Returns:
-            AnalysisResponse with cross-referenced analysis and confidence scoring
+            AnalysisResponse with unified analysis from all images
 
         Raises:
             Exception: If API call fails or response is invalid
@@ -926,79 +926,67 @@ CRITICAL OUTPUT INSTRUCTIONS: Your response must be ONLY the final JSON Object.
 
         logger.info(f"Analyzing {len(images_data)} images for platform: {platform}")
 
-        # Analyze each image separately
-        individual_analyses = []
-        raw_analyses = []
+        # Extract image bytes and mime types (ignore optional URL if present)
+        images_for_batch = [(img[0], img[1]) for img in images_data]
 
-        for idx, image_tuple in enumerate(images_data):
-            # Extract bytes and mime_type (ignore URL if present)
-            image_bytes = image_tuple[0]
-            mime_type = image_tuple[1]
-            try:
-                logger.info(f"Analyzing image {idx + 1}/{len(images_data)}")
-                result = await self._analyze_single_image(image_bytes, mime_type, platform, idx, user_context)
-                individual_analyses.append(result["analysis"])
-                raw_analyses.append(result["raw_data"])
-            except Exception as e:
-                logger.error(f"Failed to analyze image {idx + 1}: {str(e)}")
-                raise Exception(f"Failed to analyze image {idx + 1}: {str(e)}")
+        # Analyze all images in a single API call
+        result = await self._analyze_images_batch(images_for_batch, platform, user_context)
 
-        # Cross-reference all analyses
-        consensus, discrepancies, confidence, notes = self._cross_reference_analyses(raw_analyses, platform)
-
-        # Use the first (primary) image's title and description, but could be enhanced
-        # to generate new ones based on consensus data
-        primary_analysis = raw_analyses[0]
+        analysis = result["analysis"]
+        analysis_data = result["raw_data"]
+        images_analyzed = result["images_analyzed"]
 
         # Create the final response
         response = AnalysisResponse(
-            product_name=consensus.get("product_name", "Unknown Product"),
-            brand=consensus.get("brand"),
-            category=consensus.get("category"),
-            condition=consensus.get("condition", "Used"),
-            color=consensus.get("color"),
-            material=consensus.get("material"),
-            model_number=consensus.get("model_number"),
-            key_features=consensus.get("key_features", []),
-            suggested_title=primary_analysis.get("suggested_title", ""),
-            suggested_description=primary_analysis.get("suggested_description", ""),
-            confidence_score=confidence,
-            images_analyzed=len(images_data),
-            individual_analyses=individual_analyses,
-            discrepancies=discrepancies,
-            verification_notes=notes,
-            # Enhanced identification fields from primary image
-            analysis_confidence=primary_analysis.get("analysis_confidence", 100),
-            visible_components=primary_analysis.get("visible_components", []),
-            completeness_status=primary_analysis.get("completeness_status", "unknown"),
-            missing_components=primary_analysis.get("missing_components"),
-            ambiguities=primary_analysis.get("ambiguities", []),
-            reasoning=primary_analysis.get("reasoning"),
-            ebay_category_keywords=primary_analysis.get("ebay_category_keywords", []),
+            product_name=analysis_data.get("product_name", "Unknown Product"),
+            brand=analysis_data.get("brand"),
+            category=analysis_data.get("category"),
+            condition=analysis_data.get("condition", "Used"),
+            color=analysis_data.get("color"),
+            material=analysis_data.get("material"),
+            model_number=analysis_data.get("model_number"),
+            key_features=analysis_data.get("key_features", []),
+            suggested_title=analysis_data.get("suggested_title", ""),
+            suggested_description=analysis_data.get("suggested_description", ""),
+            confidence_score=analysis_data.get("analysis_confidence", 100),
+            images_analyzed=images_analyzed,
+            # Backward compatibility: single-item list with the combined analysis
+            individual_analyses=[analysis],
+            # No cross-referencing needed with single API call
+            discrepancies=[],
+            verification_notes=f"Analyzed {images_analyzed} images in a single batch request.",
+            # Enhanced identification fields
+            analysis_confidence=analysis_data.get("analysis_confidence", 100),
+            visible_components=analysis_data.get("visible_components", []),
+            completeness_status=analysis_data.get("completeness_status", "unknown"),
+            missing_components=analysis_data.get("missing_components"),
+            ambiguities=analysis_data.get("ambiguities", []),
+            reasoning=analysis_data.get("reasoning"),
+            ebay_category_keywords=analysis_data.get("ebay_category_keywords", []),
             # Product attributes for marketplace requirements
-            product_attributes=primary_analysis.get("product_attributes"),
+            product_attributes=analysis_data.get("product_attributes"),
             # LLM-predicted eBay category and aspects
-            ebay_category=primary_analysis.get("ebay_category"),
-            ebay_aspects=primary_analysis.get("ebay_aspects")
+            ebay_category=analysis_data.get("ebay_category"),
+            ebay_aspects=analysis_data.get("ebay_aspects")
         )
 
         # Enrich eBay aspects with offline metadata if category and aspects are present
-        if primary_analysis.get('ebay_category') and primary_analysis.get('ebay_aspects'):
+        if analysis_data.get('ebay_category') and analysis_data.get('ebay_aspects'):
             try:
                 enriched_aspects = self._enrich_ebay_aspects(
-                    category_data=primary_analysis['ebay_category'],
-                    aspect_values=primary_analysis['ebay_aspects']
+                    category_data=analysis_data['ebay_category'],
+                    aspect_values=analysis_data['ebay_aspects']
                 )
                 if enriched_aspects:
                     response.suggested_category_id = enriched_aspects['category_id']
                     response.suggested_category_aspects = enriched_aspects['aspects_data']
-                    logger.info(f"Enriched {len(primary_analysis['ebay_aspects'])} aspects with offline metadata for category {enriched_aspects['category_id']}")
+                    logger.info(f"Enriched {len(analysis_data['ebay_aspects'])} aspects with offline metadata for category {enriched_aspects['category_id']}")
             except Exception as e:
                 logger.error(f"Failed to enrich eBay aspects: {e}")
                 # Continue without enrichment - not a critical failure
 
-        logger.info(f"Cross-reference complete. Confidence: {confidence}%, Discrepancies: {len(discrepancies)}")
-        logger.info(f"Analysis confidence: {primary_analysis.get('analysis_confidence', 100)}%, Completeness: {primary_analysis.get('completeness_status', 'unknown')}")
+        logger.info(f"Batch analysis complete. Images analyzed: {images_analyzed}, Confidence: {analysis_data.get('analysis_confidence', 100)}%")
+        logger.info(f"Completeness: {analysis_data.get('completeness_status', 'unknown')}")
         return response
 
     async def _analyze_single_image(
@@ -1508,6 +1496,459 @@ CRITICAL OUTPUT INSTRUCTIONS: Your response must be ONLY the final JSON Object.
                 raise Exception("AI service is temporarily overloaded. Please try again in a moment.")
             else:
                 raise Exception(f"Failed to analyze image: {error_msg}")
+
+    async def _analyze_images_batch(
+        self,
+        images_data: List[Tuple[bytes, str]],
+        platform: Platform,
+        user_context: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Analyze multiple product images in a single Claude API call.
+
+        Args:
+            images_data: List of tuples containing (image_bytes, mime_type)
+            platform: Target platform for optimization
+            user_context: Optional user-provided context to improve analysis accuracy
+
+        Returns:
+            Dictionary with 'analysis' (ImageAnalysis) and 'raw_data' (dict)
+
+        Raises:
+            Exception: If API call fails, all images fail to encode, or response is invalid
+        """
+        # Initialize performance tracker
+        tracker = PerformanceTracker()
+        tracker.log_event("batch_analysis_start", image_count=len(images_data), platform=str(platform))
+
+        try:
+            # Encode all images to base64, skip failures
+            encode_start = time.time()
+            encoded_images = []
+            skipped_count = 0
+            total_bytes = 0
+
+            for idx, image_tuple in enumerate(images_data):
+                try:
+                    image_bytes = image_tuple[0]
+                    mime_type = image_tuple[1]
+
+                    # Determine media type
+                    media_type = mime_type if mime_type.startswith("image/") else f"image/{mime_type}"
+
+                    # Encode to base64
+                    base64_image = base64.standard_b64encode(image_bytes).decode("utf-8")
+
+                    encoded_images.append({
+                        "media_type": media_type,
+                        "data": base64_image
+                    })
+                    total_bytes += len(image_bytes)
+
+                except Exception as e:
+                    logger.warning(f"Failed to encode image {idx + 1}: {str(e)}, skipping...")
+                    skipped_count += 1
+
+            # Check if all images failed
+            if len(encoded_images) == 0:
+                raise Exception("All images failed to encode. Please check image formats and try again.")
+
+            encode_duration_ms = (time.time() - encode_start) * 1000
+            tracker.log_event("batch_encoding_complete",
+                            duration_ms=encode_duration_ms,
+                            images_encoded=len(encoded_images),
+                            images_skipped=skipped_count,
+                            total_bytes=total_bytes)
+
+            logger.info(f"Encoded {len(encoded_images)} images ({skipped_count} skipped), total size: {total_bytes} bytes")
+
+            # Build the analysis prompt
+            prompt = self._build_analysis_prompt(platform, user_context)
+
+            # ========================================
+            # BATCH LOGGING: REQUEST TO CLAUDE
+            # ========================================
+            logger.info("=" * 80)
+            logger.info("SENDING BATCH REQUEST TO CLAUDE API")
+            logger.info("=" * 80)
+            logger.info(f"Model: {self.model}")
+            logger.info(f"Platform: {platform}")
+            logger.info(f"User Context: {repr(user_context)}")
+            logger.info(f"Images in batch: {len(encoded_images)}")
+            logger.info(f"Total image bytes: {total_bytes}")
+            logger.info("-" * 80)
+            logger.info("FULL PROMPT TEXT:")
+            logger.info("-" * 80)
+            logger.info(prompt)
+            logger.info("=" * 80)
+
+            # Track Claude API request
+            api_start = time.time()
+            tracker.log_api_request("claude_api_start",
+                                   model=self.model,
+                                   platform=str(platform),
+                                   image_count=len(encoded_images))
+
+            # Build tools list
+            tools = [
+                {
+                    "type": "web_search_20250305",
+                    "name": "web_search"
+                }
+            ]
+
+            # Add eBay Taxonomy tools if available
+            if self.ebay_taxonomy_service:
+                from services.ebay.claude_tools import get_ebay_tools
+                ebay_tools = get_ebay_tools()
+                tools.extend(ebay_tools)
+                logger.info(f"Added {len(ebay_tools)} eBay taxonomy tools to Claude")
+
+            # Build message content with all images
+            content = []
+            for encoded_image in encoded_images:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": encoded_image["media_type"],
+                        "data": encoded_image["data"],
+                    },
+                })
+
+            # Add the prompt as the final text block
+            content.append({
+                "type": "text",
+                "text": prompt
+            })
+
+            conversation_messages = [
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ]
+
+            # Call Claude API with vision and all available tools
+            message = self.client.messages.create(
+                model=self.model,
+                max_tokens=8192,
+                tools=tools,
+                messages=conversation_messages,
+            )
+
+            # Log API completion time
+            api_duration_ms = (time.time() - api_start) * 1000
+            tracker.log_api_request("claude_api_complete",
+                                   duration_ms=api_duration_ms,
+                                   input_tokens=message.usage.input_tokens,
+                                   output_tokens=message.usage.output_tokens,
+                                   stop_reason=message.stop_reason)
+
+            # ========================================
+            # TOOL EXECUTION LOOP
+            # ========================================
+            while message.stop_reason == "tool_use":
+                logger.info("=" * 80)
+                logger.info("CLAUDE REQUESTED TOOL USE")
+                logger.info("=" * 80)
+
+                # Extract tool use requests from message content
+                tool_uses = []
+                for content_block in message.content:
+                    if hasattr(content_block, 'type') and content_block.type == 'tool_use':
+                        tool_uses.append({
+                            "id": content_block.id,
+                            "name": content_block.name,
+                            "input": content_block.input
+                        })
+                        logger.info(f"Tool requested: {content_block.name}")
+                        logger.info(f"   Input: {content_block.input}")
+
+                if not tool_uses:
+                    logger.warning("stop_reason was 'tool_use' but no tool_use blocks found")
+                    break
+
+                # Execute each tool and collect results
+                tool_results = []
+                for tool_use in tool_uses:
+                    tool_name = tool_use["name"]
+                    tool_input = tool_use["input"]
+
+                    if tool_name == "search_ebay_categories":
+                        if not self.ebay_taxonomy_service:
+                            result = {"error": "eBay Taxonomy Service not initialized"}
+                        else:
+                            from services.ebay.claude_tools import execute_ebay_tool
+                            result = execute_ebay_tool(tool_name, tool_input, self.ebay_taxonomy_service)
+
+                        logger.info(f"Executed {tool_name}")
+                        logger.info(f"   Result: {result}")
+
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use["id"],
+                            "content": json.dumps(result)
+                        })
+                    else:
+                        logger.warning(f"Unknown tool requested: {tool_name}")
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use["id"],
+                            "content": json.dumps({"error": f"Unknown tool: {tool_name}"})
+                        })
+
+                # Send tool results back to Claude
+                logger.info("=" * 80)
+                logger.info("SENDING TOOL RESULTS BACK TO CLAUDE")
+                logger.info("=" * 80)
+
+                conversation_messages.append({
+                    "role": "assistant",
+                    "content": message.content
+                })
+
+                conversation_messages.append({
+                    "role": "user",
+                    "content": tool_results
+                })
+
+                message = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=4096,
+                    tools=tools,
+                    messages=conversation_messages
+                )
+
+                logger.info(f"Received response with stop_reason: {message.stop_reason}")
+
+            # ========================================
+            # EXTRACT RESPONSE & CITATIONS
+            # ========================================
+            parsing_start = time.time()
+            search_count = 0
+            search_queries = []
+
+            for content_block in message.content:
+                if hasattr(content_block, 'type') and content_block.type == 'server_tool_use':
+                    if hasattr(content_block, 'name') and content_block.name == 'web_search':
+                        search_count += 1
+                        query = content_block.input.get('query', 'N/A') if hasattr(content_block, 'input') else 'N/A'
+                        search_queries.append(query)
+                        logger.info(f"Web Search {search_count}: {query}")
+                        tracker.log_web_search(
+                            search_num=search_count,
+                            query=query,
+                            duration_ms=0
+                        )
+
+            if search_count > 0:
+                logger.info(f"Total web searches performed: {search_count}")
+                tracker.log_event("web_searches_detected", count=search_count, queries=search_queries)
+
+            # Check for web search errors
+            for content_block in message.content:
+                if hasattr(content_block, 'type') and content_block.type == 'web_search_tool_result':
+                    if hasattr(content_block, 'content') and isinstance(content_block.content, dict):
+                        if content_block.content.get('type') == 'web_search_tool_result_error':
+                            error_code = content_block.content.get('error_code')
+                            logger.error(f"Web search error: {error_code}")
+
+                            if error_code == 'max_uses_exceeded':
+                                raise Exception("Too many web search attempts. Please try again with clearer images.")
+                            elif error_code == 'too_many_requests':
+                                raise Exception("Rate limit exceeded. Please wait a moment and try again.")
+                            elif error_code == 'unavailable':
+                                logger.warning("Web search unavailable - using cached analysis knowledge")
+
+            # Extract the synthesized final answer
+            response_text = None
+            citations = []
+
+            for content_block in message.content:
+                if hasattr(content_block, 'type') and content_block.type == "text":
+                    response_text = content_block.text
+
+                    if hasattr(content_block, 'citations') and content_block.citations:
+                        for citation in content_block.citations:
+                            citations.append({
+                                "url": citation.url if hasattr(citation, 'url') else None,
+                                "title": citation.title if hasattr(citation, 'title') else None,
+                                "cited_text": citation.cited_text if hasattr(citation, 'cited_text') else None
+                            })
+
+            if not response_text:
+                raise Exception("No text response received from Claude")
+
+            if citations:
+                logger.info(f"Product identified using {len(citations)} web sources:")
+                for i, citation in enumerate(citations[:3], 1):
+                    logger.info(f"  {i}. {citation['title']} - {citation['url']}")
+                if len(citations) > 3:
+                    logger.info(f"  ... and {len(citations) - 3} more sources")
+
+            # ========================================
+            # BATCH LOGGING: RESPONSE FROM CLAUDE
+            # ========================================
+            logger.info("=" * 80)
+            logger.info("RECEIVED BATCH RESPONSE FROM CLAUDE API")
+            logger.info("=" * 80)
+            logger.info(f"Response Length: {len(response_text)} characters")
+            logger.info(f"Model Used: {message.model}")
+            logger.info(f"Stop Reason: {message.stop_reason}")
+            logger.info(f"Input Tokens: {message.usage.input_tokens}")
+            logger.info(f"Output Tokens: {message.usage.output_tokens}")
+            logger.info("-" * 80)
+            logger.info("FULL RESPONSE TEXT:")
+            logger.info("-" * 80)
+            logger.info(response_text)
+            logger.info("=" * 80)
+
+            # Store original response for logging
+            original_response_text = response_text
+            extraction_strategy_used = None
+
+            # ========================================
+            # JSON PARSING (same strategies as single image)
+            # ========================================
+            logger.info("Starting JSON extraction...")
+
+            # Strategy 1: Look for JSON code blocks
+            if "```json" in response_text:
+                logger.info("Strategy 1: Found ```json code block marker")
+                json_start = response_text.find("```json") + 7
+                json_end = response_text.find("```", json_start)
+                if json_end > json_start:
+                    response_text = response_text[json_start:json_end].strip()
+                    extraction_strategy_used = "json_code_block"
+                    logger.info(f"Extracted JSON from code block (chars {json_start} to {json_end})")
+
+            # Strategy 2: Find JSON object by brace matching
+            if not response_text.strip().startswith('{'):
+                logger.info("Strategy 2: Searching for JSON object...")
+                first_brace = response_text.find('{')
+                if first_brace != -1:
+                    brace_count = 0
+                    last_brace = -1
+                    for i in range(first_brace, len(response_text)):
+                        if response_text[i] == '{':
+                            brace_count += 1
+                        elif response_text[i] == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                last_brace = i
+                                break
+
+                    if last_brace > first_brace:
+                        response_text = response_text[first_brace:last_brace + 1].strip()
+                        extraction_strategy_used = "brace_counting"
+                        logger.info(f"Extracted JSON object from position {first_brace} to {last_brace}")
+            else:
+                if extraction_strategy_used is None:
+                    extraction_strategy_used = "no_extraction_needed"
+                    logger.info("Response already starts with '{', no extraction needed")
+
+            # Parse JSON with recovery strategies
+            import re
+            try:
+                analysis_data = json.loads(response_text)
+                logger.info(f"JSON parsed successfully! (Strategy: {extraction_strategy_used})")
+            except json.JSONDecodeError as first_error:
+                logger.warning(f"First JSON parse failed at position {first_error.pos}: {first_error.msg}")
+                logger.warning("Attempting JSON recovery strategies...")
+
+                # Recovery: Fix trailing commas and missing braces
+                recovered_text = response_text
+                recovered_text = re.sub(r',(\s*[}\]])', r'\1', recovered_text)
+                recovered_text = re.sub(r',\s*$', '', recovered_text)
+
+                open_braces = recovered_text.count('{')
+                close_braces = recovered_text.count('}')
+                open_brackets = recovered_text.count('[')
+                close_brackets = recovered_text.count(']')
+
+                if open_braces > close_braces:
+                    recovered_text += '}' * (open_braces - close_braces)
+                if open_brackets > close_brackets:
+                    recovered_text += ']' * (open_brackets - close_brackets)
+
+                try:
+                    analysis_data = json.loads(recovered_text)
+                    logger.info("JSON recovery successful!")
+                except json.JSONDecodeError as second_error:
+                    logger.warning(f"Recovery failed: {second_error.msg}")
+                    # Last resort: aggressive cleanup
+                    aggressive_text = recovered_text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+                    analysis_data = json.loads(aggressive_text)
+
+            # Create ImageAnalysis object (using index 0 for batch)
+            image_analysis = ImageAnalysis(
+                image_index=0,
+                product_name=analysis_data.get("product_name", "Unknown"),
+                brand=analysis_data.get("brand"),
+                category=analysis_data.get("category"),
+                condition=analysis_data.get("condition", "Used"),
+                color=analysis_data.get("color"),
+                material=analysis_data.get("material"),
+                model_number=analysis_data.get("model_number"),
+                key_features=analysis_data.get("key_features", []),
+                analysis_confidence=analysis_data.get("analysis_confidence", 100),
+                visible_components=analysis_data.get("visible_components", []),
+                completeness_status=analysis_data.get("completeness_status", "unknown"),
+                missing_components=analysis_data.get("missing_components"),
+                ambiguities=analysis_data.get("ambiguities", []),
+                reasoning=analysis_data.get("reasoning"),
+                ebay_category_keywords=analysis_data.get("ebay_category_keywords", []),
+                product_attributes=analysis_data.get("product_attributes")
+            )
+
+            # Log parsing completion
+            parsing_duration_ms = (time.time() - parsing_start) * 1000
+            tracker.log_event("response_parsing_complete",
+                            duration_ms=parsing_duration_ms,
+                            response_length=len(response_text))
+
+            # Log final summary
+            total_duration_ms = tracker.get_elapsed_ms()
+            tracker.log_event("batch_analysis_complete",
+                            total_duration_ms=total_duration_ms,
+                            images_analyzed=len(encoded_images),
+                            product_name=analysis_data.get("product_name", "Unknown"),
+                            confidence=analysis_data.get("analysis_confidence", 100))
+
+            # Log complete analysis result
+            tracker.log_analysis_result(
+                image_index=0,
+                result=analysis_data,
+                raw_response=original_response_text,
+                extraction_strategy=extraction_strategy_used
+            )
+
+            return {
+                "analysis": image_analysis,
+                "raw_data": analysis_data,
+                "images_analyzed": len(encoded_images)
+            }
+
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error: {str(e)}")
+            raise Exception(f"AI returned invalid JSON format. Please try again.")
+        except ValueError as e:
+            logger.error(f"Validation error: {str(e)}")
+            raise Exception(f"Invalid data in AI response: {str(e)}")
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error analyzing images batch: {error_msg}")
+
+            if "rate_limit" in error_msg.lower():
+                raise Exception("API rate limit exceeded. Please wait a moment and try again.")
+            elif "authentication" in error_msg.lower() or "api_key" in error_msg.lower():
+                raise Exception("Authentication error. Please check your API key configuration.")
+            elif "timeout" in error_msg.lower():
+                raise Exception("Request timed out. The AI service took too long to respond.")
+            elif "overloaded" in error_msg.lower():
+                raise Exception("AI service is temporarily overloaded. Please try again in a moment.")
+            else:
+                raise Exception(f"Failed to analyze images: {error_msg}")
 
     def find_best_category(
         self,
