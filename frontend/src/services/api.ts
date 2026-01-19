@@ -14,6 +14,52 @@ export class APIError extends Error {
   }
 }
 
+// ============================================================================
+// AUTHENTICATION HELPERS
+// ============================================================================
+
+// Store the auth token getter function (set from React component with Clerk context)
+let authTokenGetter: (() => Promise<string | null>) | null = null;
+
+/**
+ * Set the auth token getter function. Call this from a component that has
+ * access to Clerk's getToken function.
+ */
+export function setAuthTokenGetter(getter: () => Promise<string | null>) {
+  authTokenGetter = getter;
+}
+
+/**
+ * Get authorization headers with Bearer token if available.
+ */
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  if (!authTokenGetter) {
+    return {};
+  }
+
+  try {
+    const token = await authTokenGetter();
+    if (!token) {
+      return {};
+    }
+    return { 'Authorization': `Bearer ${token}` };
+  } catch (error) {
+    console.error('Failed to get auth token:', error);
+    return {};
+  }
+}
+
+/**
+ * Create headers object with auth and optional content type.
+ */
+async function createHeaders(contentType?: string): Promise<Record<string, string>> {
+  const authHeaders = await getAuthHeaders();
+  if (contentType) {
+    return { ...authHeaders, 'Content-Type': contentType };
+  }
+  return authHeaders;
+}
+
 // Check if the API is reachable
 export async function checkHealth(): Promise<boolean> {
   try {
@@ -93,8 +139,10 @@ export async function analyzeImages(
     // Using 300s base to allow for long-running analysis operations (proxy has 300s timeout)
     const timeout = 300000 + (files.length - 1) * 30000; // 300s base + 30s per additional image
 
+    const authHeaders = await getAuthHeaders();
     const response = await fetch(`${API_BASE_URL}/api/analyze`, {
       method: 'POST',
+      headers: authHeaders,
       body: formData,
       signal: AbortSignal.timeout(timeout),
     });
@@ -193,11 +241,10 @@ export async function researchPricing(
   };
 
   try {
+    const headers = await createHeaders('application/json');
     const response = await fetch(`${API_BASE_URL}/api/research-pricing`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(requestData),
       signal: AbortSignal.timeout(60000), // 60 second timeout for pricing research
     });
@@ -272,8 +319,10 @@ export async function runBatchTests(csvFile: File): Promise<TestBatchResponse> {
   formData.append('file', csvFile);
 
   try {
+    const authHeaders = await getAuthHeaders();
     const response = await fetch(`${API_BASE_URL}/api/test/batch`, {
       method: 'POST',
+      headers: authHeaders,
       body: formData,
       signal: AbortSignal.timeout(600000), // 10 minute timeout for batch tests
     });
@@ -349,11 +398,10 @@ export async function confirmAnalysis(
   }
 
   try {
+    const headers = await createHeaders('application/json');
     const response = await fetch(`${API_BASE_URL}/api/analyses/confirm`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(10000), // 10 second timeout
     });
@@ -416,8 +464,10 @@ export async function confirmAnalysis(
 
 export async function getLearningStats(): Promise<LearningStats> {
   try {
+    const authHeaders = await getAuthHeaders();
     const response = await fetch(`${API_BASE_URL}/api/learning/stats`, {
       method: 'GET',
+      headers: authHeaders,
       signal: AbortSignal.timeout(10000), // 10 second timeout
     });
 
@@ -484,11 +534,10 @@ export async function getLearningStats(): Promise<LearningStats> {
 
 export async function createDraft(draft: CreateDraftRequest): Promise<DraftListing> {
   try {
+    const headers = await createHeaders('application/json');
     const response = await fetch(`${API_BASE_URL}/api/drafts`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(draft),
     });
 
@@ -521,7 +570,10 @@ export async function listDrafts(platform?: Platform): Promise<DraftListingSumma
       url.searchParams.append("platform", platform);
     }
 
-    const response = await fetch(url.toString());
+    const authHeaders = await getAuthHeaders();
+    const response = await fetch(url.toString(), {
+      headers: authHeaders,
+    });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -547,7 +599,10 @@ export async function listDrafts(platform?: Platform): Promise<DraftListingSumma
 
 export async function getDraft(draftId: number): Promise<DraftListing> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/drafts/${draftId}`);
+    const authHeaders = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/api/drafts/${draftId}`, {
+      headers: authHeaders,
+    });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -573,8 +628,10 @@ export async function getDraft(draftId: number): Promise<DraftListing> {
 
 export async function deleteDraft(draftId: number): Promise<void> {
   try {
+    const authHeaders = await getAuthHeaders();
     const response = await fetch(`${API_BASE_URL}/api/drafts/${draftId}`, {
       method: "DELETE",
+      headers: authHeaders,
     });
 
     if (!response.ok) {
@@ -608,8 +665,10 @@ export async function getActiveListings(page: number = 1, limit: number = 20): P
     url.searchParams.append("page", page.toString());
     url.searchParams.append("limit", limit.toString());
 
+    const authHeaders = await getAuthHeaders();
     const response = await fetch(url.toString(), {
       method: "GET",
+      headers: authHeaders,
       signal: AbortSignal.timeout(10000), // 10 second timeout
     });
 
@@ -656,8 +715,10 @@ export async function getSoldListings(page: number = 1, limit: number = 20): Pro
     url.searchParams.append("page", page.toString());
     url.searchParams.append("limit", limit.toString());
 
+    const authHeaders = await getAuthHeaders();
     const response = await fetch(url.toString(), {
       method: "GET",
+      headers: authHeaders,
       signal: AbortSignal.timeout(10000), // 10 second timeout
     });
 
@@ -700,8 +761,10 @@ export async function getSoldListings(page: number = 1, limit: number = 20): Pro
 
 export async function syncListings(): Promise<SyncResponse> {
   try {
+    const authHeaders = await getAuthHeaders();
     const response = await fetch(`${API_BASE_URL}/api/listings/sync`, {
       method: "POST",
+      headers: authHeaders,
       signal: AbortSignal.timeout(30000), // 30 second timeout for sync operation
     });
 
@@ -760,11 +823,10 @@ export async function analyzeCategoryAspects(
   }
 
   try {
+    const headers = await createHeaders('application/json');
     const response = await fetch(`${API_BASE_URL}/api/analyze/category-aspects`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(90000), // 90 second timeout for Claude analysis
     });
@@ -835,8 +897,10 @@ export async function getCategoryRecommendations(
   }
 
   try {
+    const authHeaders = await getAuthHeaders();
     const response = await fetch(`${API_BASE_URL}/api/analyze/${analysisId}/categories`, {
       method: 'GET',
+      headers: authHeaders,
       signal: AbortSignal.timeout(30000), // 30 second timeout
     });
 

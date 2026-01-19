@@ -4,7 +4,7 @@ import uuid
 import traceback
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,6 +24,7 @@ from services.claude_analyzer import get_analyzer
 from services.pricing_researcher import get_pricing_researcher
 from services.batch_tester import get_batch_tester
 from services.ebay.media import EbayMediaService
+from services.auth import get_current_user, ClerkUser, get_user_id_from_request
 from database import init_db, get_db
 
 # Load environment variables
@@ -239,10 +240,12 @@ async def health_check():
     }
 )
 async def analyze_image(
+    request: Request,
     files: List[UploadFile] = File(..., description="Product image files (1-5 images)"),
     platform: Optional[str] = Form(default="ebay", description="Target platform: ebay, amazon, or walmart"),
     user_context: Optional[str] = Form(default=None, description="Optional user-provided context to improve analysis accuracy"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: Optional[ClerkUser] = Depends(get_current_user)
 ):
     """
     Analyze product images and generate marketplace listing content.
@@ -2510,15 +2513,19 @@ async def create_draft(
     responses={500: {"model": ErrorResponse}}
 )
 async def list_drafts(
+    request: Request,
     platform: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: Optional[ClerkUser] = Depends(get_current_user)
 ):
     """
     List all draft listings for the current user.
 
     Args:
+        request: FastAPI request object
         platform: Optional filter by platform
         db: Database session
+        user: Authenticated user (optional during transition)
 
     Returns:
         List of DraftListingSummary
@@ -2529,7 +2536,8 @@ async def list_drafts(
     from database_models import DraftListing
 
     try:
-        query = db.query(DraftListing).filter(DraftListing.user_id == "default_user")
+        user_id = get_user_id_from_request(request, user)
+        query = db.query(DraftListing).filter(DraftListing.user_id == user_id)
 
         if platform:
             query = query.filter(DraftListing.platform == platform)

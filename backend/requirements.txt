@@ -8,6 +8,10 @@ pydantic==2.5.3
 pydantic-settings==2.1.0
 httpx<0.28
 
+# Authentication dependencies
+PyJWT==2.8.0
+cryptography==42.0.0
+
 # Testing dependencies
 rapidfuzz==3.6.1
 pandas==2.2.0
