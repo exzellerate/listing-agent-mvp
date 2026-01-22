@@ -144,7 +144,7 @@ IMPORTANT: Use this context to guide your analysis and improve accuracy. The use
 - Specific product variant or edition
 - Unique identifying features
 
-Consider this information when identifying the product, but still verify against what's visible in the image.
+Consider this information when identifying the product, but still verify against what's visible in the images.
 
 """
 
@@ -162,9 +162,11 @@ Your response must be ONLY a single valid JSON object.
 Follow the analysis steps below INTERNALLY to gather information, 
 but DO NOT output the steps - only output the final JSON result.
 
-{context_section}Analyze this product image for a marketplace listing on {platform.upper()}.
+{context_section}Analyze these product images for a marketplace listing on {platform.upper()}.
 
-CRITICAL: Accurately identify what product is being LISTED for sale, find the correct eBay category, extract attributes from the image (priority) and web (fallback), and generate an optimized listing.
+CRITICAL: Accurately identify what product is being LISTED for sale, find the correct eBay category, extract attributes from the images (priority) and web (fallback), and generate an optimized listing.
+
+CONTEXT:  All images are for the same item to be analyzed just available in different angles and views.
 
 ---
 
@@ -176,6 +178,8 @@ CRITICAL: Accurately identify what product is being LISTED for sale, find the co
 
 You MUST use these tools in this exact order:
 1. **STEP 1-2**: Use `web_search` to verify product identity
+	CRITICAL: Do not rely solely on visual memory. You have access to web search - USE IT.
+
 2. **STEP 4 (MANDATORY)**: Call `search_ebay_categories` with product keywords - this returns BOTH the category and all REQUIRED, RECOMMENDED and OPTIONAL item specifics. 
 
 ## AVAILABLE TOOLS
@@ -336,7 +340,7 @@ STEP 5: FIND ITEM SPECIFICS
  
 Step 5.1 - Visible attributes 
 
-Extract ALL visible/identifiable attributes from the image based on the aspect information needed. Be thorough and comprehensive - capture everything you can observe or infer. Do NOT limit yourself to a predefined list.
+Extract ALL visible/identifiable attributes from the images based on the aspect information needed. Be thorough and comprehensive - capture everything you can observe or infer. Do NOT limit yourself to a predefined list.
 
 Here is a sample set of attributes that would assist in filling the ebay aspects available
 
@@ -394,7 +398,7 @@ Common mappings:
 Step 5.2 - SEARCH THE WEB FOR PENDING ATTRIBUTE VALUES
 
   **Using Web Search for Aspect VALUES:**
-  - If an aspect value is NOT visible in the image (e.g., "Country of Manufacture", "Item Weight")
+  - If an aspect value is NOT visible in the images (e.g., "Country of Manufacture", "Item Weight")
   - AND it's a REQUIRED aspect
   - THEN use `web_search` to find the specific VALUE (e.g., search "Owala water bottle country of origin")
   - DO NOT use web_search to find what aspects exist - they're already provided by the tool
@@ -438,7 +442,7 @@ For each filled aspect, provide:
 ```json
 "Item Weight": {{
   "value": "NEEDS_USER_INPUT",
-  "reason": "Cannot estimate weight from image",
+  "reason": "Cannot estimate weight from images",
   "seller_action": "Please weigh the item or check original listing",
   "impact": "REQUIRED - listing will fail without this"
 }}
@@ -633,7 +637,7 @@ Provide your analysis in JSON format:
     "additional_attributes": {{{{}}}} - Any other category-specific attributes as key-value pairs
   }}}},
 "extracted_attributes": {{{{
-    # FREEFORM - All observations from the image
+    # FREEFORM - All observations from the images
     # Keys are descriptive, not predefined
     # Examples:
     "brand": "West Elm",
@@ -1096,6 +1100,7 @@ CRITICAL OUTPUT INSTRUCTIONS: Your response must be ONLY the final JSON Object.
             message = self.client.messages.create(
                 model=self.model,
                 max_tokens=8192,  # Increased from 2500 to allow full JSON response with all fields
+                temperature=0.3,
                 tools=tools,
                 messages=conversation_messages,
             )

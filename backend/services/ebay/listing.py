@@ -17,6 +17,7 @@ from database_models import (
     EbayListing, EbayListingFailure, ListingStatus, FailureStage
 )
 from .oauth import EbayOAuthService
+from .media import EbayMediaService
 
 logger = logging.getLogger(__name__)
 
@@ -174,12 +175,23 @@ class EbayListingService:
             # Step 1.5: Ensure inventory location exists
             self._ensure_inventory_location(user_id)
 
-            # Step 2: Upload images
+            # Step 2: Upload images to eBay via Media API
             if images:
+                # Upload from raw bytes (legacy path - not implemented)
                 self._update_listing_status(listing.id, ListingStatus.UPLOADING_IMAGES)
                 image_urls = self._upload_images(listing.sku, images, user_id)
                 listing.image_urls = image_urls
                 self.db.commit()
+            elif listing.image_urls and len(listing.image_urls) > 0:
+                # Upload from URLs via eBay Media API
+                self._update_listing_status(listing.id, ListingStatus.UPLOADING_IMAGES)
+                ebay_image_urls = self._upload_images_from_urls(listing.image_urls, user_id)
+                if ebay_image_urls:
+                    listing.image_urls = ebay_image_urls
+                    self.db.commit()
+                    logger.info(f"Uploaded {len(ebay_image_urls)} images to eBay")
+                else:
+                    logger.warning("No images were successfully uploaded to eBay")
 
             # Step 3: Create inventory item
             self._update_listing_status(listing.id, ListingStatus.CREATING_INVENTORY)
@@ -671,6 +683,50 @@ class EbayListingService:
             "eBay image upload not yet implemented. "
             "This requires eBay Picture Services integration."
         )
+
+    def _upload_images_from_urls(
+        self,
+        image_urls: List[str],
+        user_id: str
+    ) -> List[str]:
+        """
+        Upload images to eBay from URLs using the Media API.
+
+        Args:
+            image_urls: List of publicly accessible image URLs
+            user_id: User identifier
+
+        Returns:
+            List of eBay-hosted image URLs
+        """
+        logger.info(f"Uploading {len(image_urls)} images from URLs via eBay Media API")
+
+        # Get OAuth token
+        token = self.oauth_service.get_valid_token(user_id)
+        if not token:
+            logger.error("No valid OAuth token available for Media API")
+            return []
+
+        # Create Media API service
+        media_service = EbayMediaService(
+            access_token=token,
+            environment=self.environment
+        )
+
+        # Upload images (synchronous wrapper around async method)
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        ebay_urls = loop.run_until_complete(
+            media_service.upload_multiple_images(image_urls)
+        )
+
+        logger.info(f"Successfully uploaded {len(ebay_urls)}/{len(image_urls)} images to eBay")
+        return ebay_urls
 
     def _get_category_metadata(self, category_id: str, user_id: str) -> Dict[str, Any]:
         """
