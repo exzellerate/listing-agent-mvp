@@ -8,8 +8,8 @@ const http = require('http');
 const httpProxy = require('http-proxy');
 
 const proxy = httpProxy.createProxyServer({
-  proxyTimeout: 300000, // 5 minutes (300 seconds) for long-running image analysis
-  timeout: 300000, // 5 minutes socket timeout
+  proxyTimeout: 600000, // 10 minutes (600 seconds) for long-running image analysis
+  timeout: 600000, // 10 minutes socket timeout
 });
 const PORT = 3001;
 
@@ -40,14 +40,14 @@ const server = http.createServer((req, res) => {
   }
 });
 
-// Set server timeout to 5 minutes (300 seconds)
-server.setTimeout(300000);
-server.keepAliveTimeout = 305000; // Slightly longer than setTimeout
-server.headersTimeout = 310000; // Slightly longer than keepAliveTimeout
+// Set server timeout to 10 minutes (600 seconds)
+server.setTimeout(600000);
+server.keepAliveTimeout = 605000; // Slightly longer than setTimeout
+server.headersTimeout = 610000; // Slightly longer than keepAliveTimeout
 
 server.listen(PORT, () => {
   console.log(`Proxy server running on port ${PORT}`);
-  console.log('Timeouts configured: 300s (5 minutes)');
+  console.log('Timeouts configured: 600s (10 minutes)');
   console.log('Routes:');
   console.log('  /api/*     -> http://localhost:8000');
   console.log('  /uploads/* -> http://localhost:8000');

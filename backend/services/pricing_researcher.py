@@ -25,9 +25,9 @@ class PricingResearcher:
         """
         self.client = Anthropic(
             api_key=api_key,
-            timeout=180.0  # 3 minutes to allow for web search operations
+            timeout=300.0  # 5 minutes to allow for web search operations
         )
-        self.model = "claude-sonnet-4-20250514"
+        self.model = "claude-sonnet-4-5-20250929"
 
     def _build_pricing_prompt(
         self,
@@ -193,22 +193,20 @@ Remember:
                     {
                         "type": "web_search_20250305",
                         "name": "web_search",
-                        "max_uses": 5,  # Limit to 5 searches per pricing request
+                        "max_uses": 5,
                         "allowed_domains": [
                             # Primary marketplaces
                             "ebay.com",
-                            "amazon.com",
                             "stockx.com",
-                            "mercari.com",
                             "poshmark.com",
-                            # Additional marketplaces
-                            #"grailed.com",
-                            #"depop.com",
+                            "mercari.com",
+                            "depop.com",
+                            "grailed.com",
                             "offerup.com",
-                           # "facebook.com",  # For Marketplace
-                            # Price comparison/aggregators
-                            #"camelcamelcamel.com",
-                            #"pricecharting.com"
+                            "amazon.com",
+                            # Price tracking / comparison
+                            "camelcamelcamel.com",
+                            "pricecharting.com",
                         ]
                     }
                 ],
@@ -313,6 +311,36 @@ Remember:
 
                 pricing_data = json.loads(response_text)
 
+                # Sanitize: filter out competitor prices with null/missing price
+                if "competitor_prices" in pricing_data:
+                    pricing_data["competitor_prices"] = [
+                        cp for cp in pricing_data["competitor_prices"]
+                        if cp.get("price") is not None
+                    ]
+
+                # Sanitize: recalculate statistics from valid prices if any are null
+                stats = pricing_data.get("statistics", {})
+                valid_prices = [cp["price"] for cp in pricing_data.get("competitor_prices", []) if cp.get("price") is not None]
+
+                if valid_prices and any(stats.get(k) is None for k in ("min_price", "max_price", "average", "median", "suggested_price")):
+                    sorted_prices = sorted(valid_prices)
+                    mid = len(sorted_prices) // 2
+                    median_val = (sorted_prices[mid] + sorted_prices[~mid]) / 2
+                    avg_val = sum(sorted_prices) / len(sorted_prices)
+                    stats["min_price"] = stats.get("min_price") if stats.get("min_price") is not None else sorted_prices[0]
+                    stats["max_price"] = stats.get("max_price") if stats.get("max_price") is not None else sorted_prices[-1]
+                    stats["average"] = stats.get("average") if stats.get("average") is not None else round(avg_val, 2)
+                    stats["median"] = stats.get("median") if stats.get("median") is not None else round(median_val, 2)
+                    stats["suggested_price"] = stats.get("suggested_price") if stats.get("suggested_price") is not None else round(median_val, 2)
+                    pricing_data["statistics"] = stats
+                elif not valid_prices:
+                    # No valid prices at all — set defaults to 0
+                    pricing_data["statistics"] = {
+                        "min_price": 0.0, "max_price": 0.0,
+                        "average": 0.0, "median": 0.0, "suggested_price": 0.0
+                    }
+                    pricing_data["competitor_prices"] = []
+
                 # Log complete pricing result for dashboard
                 tracker.log_pricing_result(result=pricing_data)
 
@@ -323,20 +351,6 @@ Remember:
                 logger.error(f"Failed to parse JSON response: {e}")
                 logger.error(f"Response text: {response_text}")
                 raise Exception(f"Failed to parse pricing data: {str(e)}")
-
-            # Log parsing completion
-            parsing_duration_ms = (time.time() - parsing_start) * 1000
-            tracker.log_event("pricing_parsing_complete",
-                            duration_ms=parsing_duration_ms,
-                            response_length=len(response_text))
-
-            # Log final summary
-            total_duration_ms = tracker.get_elapsed_ms()
-            tracker.log_event("pricing_research_complete",
-                            total_duration_ms=total_duration_ms,
-                            product_name=product_name,
-                            confidence=pricing_data.get("confidence_score", 0),
-                            suggested_price=pricing_data.get("statistics", {}).get("suggested_price", 0))
 
         except json.JSONDecodeError as e:
             logger.error(f"JSON parsing error: {str(e)}")

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
@@ -459,7 +459,8 @@ async def analyze_image(
                 result = await analyzer.analyze_images(
                     images_data=images_data,
                     platform=platform,
-                    user_context=user_context
+                    user_context=user_context,
+                    request_id=request_id
                 )
 
                 # Add verification note
@@ -474,7 +475,8 @@ async def analyze_image(
             result = await analyzer.analyze_images(
                 images_data=images_data,
                 platform=platform,
-                user_context=user_context
+                user_context=user_context,
+                request_id=request_id
             )
 
         # Note: Category recommendations are now fetched separately via /api/analyze/{analysis_id}/categories
@@ -662,16 +664,33 @@ async def analyze_image(
         logger.error(f"[{request_id}] Analysis failed: {str(e)}")
         db.rollback()
 
-        # Determine error type based on exception
+        # Classify error type and pick appropriate HTTP status code
+        from anthropic import APITimeoutError, APIConnectionError, RateLimitError, APIStatusError
+        error_str = str(e).lower()
         error_type = "unknown_error"
         error_message = "Failed to analyze image"
+        status_code = 500
 
-        # Check if it's a database error
-        if "database" in str(e).lower() or "sql" in str(e).lower():
+        if isinstance(e, APITimeoutError) or "timeout" in error_str:
+            error_type = "timeout_error"
+            error_message = "Analysis timed out. Try again — it often works on retry."
+            status_code = 504
+        elif isinstance(e, RateLimitError) or "rate limit" in error_str or "too many requests" in error_str:
+            error_type = "rate_limit_error"
+            error_message = "AI service is busy. Please wait a moment and try again."
+            status_code = 429
+        elif isinstance(e, APIStatusError) and hasattr(e, 'status_code') and e.status_code == 529:
+            error_type = "overloaded_error"
+            error_message = "AI service is overloaded. Try again in a few minutes."
+            status_code = 503
+        elif isinstance(e, (APIConnectionError, APIStatusError)):
+            error_type = "api_error"
+            error_message = "AI service error. Please try again."
+            status_code = 502
+        elif "database" in error_str or "sql" in error_str:
             error_type = "database_error"
             error_message = "Database error during analysis"
-        # Check if it's an API error (from Claude/Anthropic)
-        elif "anthropic" in str(e).lower() or "api" in str(e).lower():
+        elif "anthropic" in error_str or "api" in error_str:
             error_type = "analysis_error"
             error_message = "AI analysis service error"
 
@@ -686,9 +705,300 @@ async def analyze_image(
             }
         )
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to analyze image: {str(e)}"
+            status_code=status_code,
+            detail=error_message
         )
+
+
+# ========================================
+# SSE Progress Streaming Endpoint
+# ========================================
+
+@app.post("/api/analyze-stream")
+async def analyze_image_stream(
+    request: Request,
+    files: List[UploadFile] = File(..., description="Product image files (1-5 images)"),
+    platform: Optional[str] = Form(default="ebay", description="Target platform"),
+    user_context: Optional[str] = Form(default=None, description="Optional user context"),
+    db: Session = Depends(get_db),
+    user: Optional[ClerkUser] = Depends(get_current_user)
+):
+    """Analyze product images with SSE progress streaming.
+
+    Returns a Server-Sent Events stream with progress updates, then the final result.
+    Events: validating, encoding, analyzing, tool_use, parsing, categorizing, complete, error
+    """
+    import asyncio
+    import time
+    import json as json_mod
+    from datetime import datetime
+    from utils.image_hash import get_image_hash
+    from utils.performance_logger import generate_request_id
+    from database_models import ProductAnalysis, AnalysisSource, UserAction
+
+    request_id = generate_request_id()
+    progress_queue = asyncio.Queue()
+
+    # Quick validation only (no file I/O) so we can return StreamingResponse fast
+    if not files or len(files) < 1:
+        raise HTTPException(status_code=400, detail="At least one image is required")
+    if len(files) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 images allowed")
+
+    valid_platforms = ["ebay", "amazon", "walmart"]
+    if platform not in valid_platforms:
+        raise HTTPException(status_code=400, detail=f"Invalid platform. Must be one of: {', '.join(valid_platforms)}")
+
+    # Validate file types only (no reading yet)
+    allowed_types = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]
+    for idx, file in enumerate(files):
+        if file.content_type not in allowed_types:
+            raise HTTPException(status_code=400, detail=f"Invalid file type for image {idx + 1}: {file.content_type}")
+
+    # Read file contents now (must be done before StreamingResponse since UploadFile
+    # objects are tied to the request lifecycle), but defer hashing to run_analysis
+    MAX_FILE_SIZE = 10 * 1024 * 1024
+    file_contents = []
+    for idx, file in enumerate(files):
+        contents = await file.read()
+        if len(contents) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail=f"Image {idx + 1} exceeds 10MB limit")
+        file_contents.append((contents, file.content_type, file.filename))
+
+    def progress_callback(stage: str, message: str):
+        """Thread-safe callback that puts progress into the queue."""
+        try:
+            progress_queue.put_nowait({"stage": stage, "message": message})
+        except Exception:
+            pass
+
+    async def run_analysis():
+        """Run the analysis in the background and put result/error into queue."""
+        try:
+            progress_callback("validating", "Processing uploaded images...")
+
+            # Do image hashing and saving inside the background task
+            images_data = []
+            image_hashes = []
+            for idx, (contents, content_type, filename) in enumerate(file_contents):
+                try:
+                    image_hash = get_image_hash(contents)
+                    image_hashes.append(image_hash)
+                except ValueError:
+                    image_hashes.append(None)
+
+                saved_filename, local_image_url = save_uploaded_image(contents, filename)
+                images_data.append((contents, content_type, local_image_url))
+
+            from services.learning_engine import get_learning_engine
+            learning_engine = get_learning_engine(db)
+            analyzer = get_analyzer(db)
+
+            primary_hash = image_hashes[0]
+            learned_match = learning_engine.find_similar_learned_product(primary_hash, platform)
+
+            result = None
+            source = AnalysisSource.AI_API
+            learned_product_id = None
+
+            if learned_match:
+                learned_product, confidence, distance = learned_match
+                if learning_engine.should_use_learned_data(confidence):
+                    source = AnalysisSource.LEARNED_DATA
+                    learned_product_id = learned_product.id
+                    from models import AnalysisResponse as AR
+                    result = AR(
+                        product_name=learned_product.product_name,
+                        brand=learned_product.brand,
+                        category=learned_product.category,
+                        condition=learned_product.typical_condition or "Used",
+                        color=learned_product.typical_color,
+                        material=learned_product.typical_material,
+                        model_number=learned_product.model_number,
+                        key_features=learned_product.common_features or [],
+                        suggested_title=learned_product.best_title,
+                        suggested_description=learned_product.best_description,
+                        confidence_score=int(confidence * 100),
+                        images_analyzed=len(images_data),
+                        individual_analyses=[],
+                        discrepancies=[],
+                        verification_notes=f"Matched learned product (distance: {distance}, confidence: {confidence:.2f})",
+                        analysis_confidence=int(confidence * 100),
+                        visible_components=[],
+                        completeness_status="unknown",
+                        missing_components=None,
+                        ambiguities=[],
+                        reasoning=f"Used learned data from {learned_product.times_analyzed} previous analyses"
+                    )
+                elif learning_engine.should_use_hybrid_mode(confidence):
+                    source = AnalysisSource.HYBRID
+                    learned_product_id = learned_product.id
+                    result = await analyzer.analyze_images(
+                        images_data=images_data,
+                        platform=platform,
+                        user_context=user_context,
+                        request_id=request_id,
+                        progress_callback=progress_callback
+                    )
+
+            if result is None:
+                result = await analyzer.analyze_images(
+                    images_data=images_data,
+                    platform=platform,
+                    user_context=user_context,
+                    request_id=request_id,
+                    progress_callback=progress_callback
+                )
+
+            progress_callback("categorizing", "Matching eBay categories...")
+
+            # eBay category matching (same as main endpoint)
+            if platform == "ebay":
+                try:
+                    product_analysis = result.dict()
+                    category_keywords = extract_category_keywords(product_analysis)
+
+                    from services.ebay.taxonomy import EbayTaxonomyService
+                    from services.ebay.category_recommender import CategoryRecommender
+                    from services.ebay.oauth import EbayOAuthService
+
+                    oauth_service = EbayOAuthService(db)
+                    app_token = oauth_service.get_application_token()
+                    taxonomy_service = EbayTaxonomyService(app_token)
+                    recommender = CategoryRecommender(taxonomy_service)
+
+                    category_matches = recommender.recommend_categories(
+                        product_name=product_analysis.get('product_name', ''),
+                        brand=product_analysis.get('brand'),
+                        category_keywords=category_keywords,
+                        product_category=product_analysis.get('category')
+                    )
+
+                    if category_matches and len(category_matches) > 0:
+                        from models import CategoryRecommendation as CR
+                        category_recommendations = []
+                        for cat in category_matches[:5]:
+                            category_recommendations.append(CR(
+                                category_id=cat.get('category_id', ''),
+                                category_name=cat.get('category_name', ''),
+                                category_path=cat.get('path', ''),
+                                confidence=cat.get('confidence', 0.7),
+                                reasoning=f"Matched keywords: {', '.join(cat.get('matched_keywords', []))}"
+                            ))
+                        result.ebay_category_suggestions = category_recommendations
+                except Exception as cat_err:
+                    logger.warning(f"Category matching failed in SSE endpoint: {cat_err}")
+
+            # Store in database (simplified — reuses pattern from main endpoint)
+            try:
+                user_id = get_user_id_from_request(request, user) if user else "default_user"
+                analysis_record = ProductAnalysis(
+                    user_id=user_id,
+                    platform=platform,
+                    source=source,
+                    image_hash=image_hashes[0] if image_hashes else None,
+                    product_name=result.product_name,
+                    brand=result.brand,
+                    category=result.category,
+                    condition=result.condition,
+                    suggested_title=result.suggested_title,
+                    suggested_description=result.suggested_description,
+                    confidence_score=result.confidence_score,
+                    images_analyzed=len(images_data),
+                    image_urls=[img[2] for img in images_data] if images_data else [],
+                    raw_analysis=result.dict(),
+                )
+                db.add(analysis_record)
+                db.commit()
+                db.refresh(analysis_record)
+                result.analysis_id = analysis_record.id
+            except Exception as db_err:
+                logger.warning(f"Failed to save analysis to DB in SSE endpoint: {db_err}")
+                db.rollback()
+
+            await progress_queue.put({"stage": "complete", "data": result.dict()})
+
+        except Exception as e:
+            logger.error(f"[{request_id}] SSE analysis failed: {e}")
+            from anthropic import APITimeoutError, RateLimitError, APIStatusError, APIConnectionError
+            error_str = str(e).lower()
+            error_code = 500
+            error_msg = str(e)
+
+            if isinstance(e, APITimeoutError) or "timeout" in error_str:
+                error_code = 504
+                error_msg = "Analysis timed out. Try again — it often works on retry."
+            elif isinstance(e, RateLimitError):
+                error_code = 429
+                error_msg = "AI service is busy. Please wait a moment and try again."
+            elif isinstance(e, APIStatusError) and hasattr(e, 'status_code') and e.status_code == 529:
+                error_code = 503
+                error_msg = "AI service is overloaded. Try again in a few minutes."
+            elif isinstance(e, (APIConnectionError, APIStatusError)):
+                error_code = 502
+                error_msg = "AI service error. Please try again."
+
+            await progress_queue.put({"stage": "error", "message": error_msg, "error_code": error_code})
+
+    async def event_generator():
+        """Generate SSE events from the progress queue."""
+        # Send initial event immediately so the client gets response headers
+        yield f"data: {json_mod.dumps({'stage': 'validating', 'message': 'Starting analysis...', 'progress': 1})}\n\n"
+
+        # Start analysis as background task
+        analysis_task = asyncio.create_task(run_analysis())
+
+        last_event_time = time.time()
+        HEARTBEAT_INTERVAL = 15
+
+        try:
+            while True:
+                try:
+                    timeout = max(0.5, HEARTBEAT_INTERVAL - (time.time() - last_event_time))
+                    event = await asyncio.wait_for(progress_queue.get(), timeout=timeout)
+                    last_event_time = time.time()
+
+                    if event["stage"] == "complete":
+                        yield f"data: {json_mod.dumps(event)}\n\n"
+                        return
+                    elif event["stage"] == "error":
+                        yield f"data: {json_mod.dumps(event)}\n\n"
+                        return
+                    else:
+                        # Progress event — map stage to percentage
+                        stage_progress = {
+                            "validating": 5, "encoding": 10, "analyzing": 20,
+                            "searching": 40, "tool_use": 50, "retrying": 55,
+                            "parsing": 75, "categorizing": 90,
+                        }
+                        event["progress"] = stage_progress.get(event["stage"], 50)
+                        yield f"data: {json_mod.dumps(event)}\n\n"
+
+                except asyncio.TimeoutError:
+                    # Send heartbeat
+                    yield ": heartbeat\n\n"
+                    last_event_time = time.time()
+
+                    # Check if the analysis task is done (error case where nothing was queued)
+                    if analysis_task.done():
+                        exc = analysis_task.exception()
+                        if exc:
+                            yield f"data: {json_mod.dumps({'stage': 'error', 'message': str(exc), 'error_code': 500})}\n\n"
+                        return
+
+        except asyncio.CancelledError:
+            analysis_task.cancel()
+            raise
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 # Response model for category recommendations
@@ -3189,6 +3499,63 @@ async def get_performance_logs():
             result["request_status"] = [json.loads(line) for line in f if line.strip()]
 
     return result
+
+
+@app.get("/api/debug/errors")
+async def get_debug_errors(limit: int = 20):
+    """Return recent error entries from request_status.jsonl."""
+    import json as json_mod
+
+    logs_dir = Path(__file__).parent / "logs"
+    status_log = logs_dir / "request_status.jsonl"
+    failed_dir = logs_dir / "failed_responses"
+
+    errors = []
+    if status_log.exists():
+        with open(status_log, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json_mod.loads(line)
+                except json_mod.JSONDecodeError:
+                    continue
+                if entry.get("status") == "error":
+                    req_id = entry.get("request_id", "")
+                    error = entry.get("error", {})
+                    has_raw = (failed_dir / f"{req_id}.txt").exists() if req_id else False
+                    errors.append({
+                        "request_id": req_id,
+                        "timestamp": entry.get("timestamp", ""),
+                        "error_type": error.get("type", "unknown_error"),
+                        "message": error.get("message", "An unknown error occurred"),
+                        "details": error.get("details", ""),
+                        "has_raw_response": has_raw,
+                    })
+
+    # Return most recent errors first
+    errors.reverse()
+    total = len(errors)
+    errors = errors[:limit]
+
+    return {"errors": errors, "total_errors": total}
+
+
+@app.get("/api/debug/errors/{request_id}/raw")
+async def get_debug_error_raw(request_id: str):
+    """Serve the saved raw response file for a failed request."""
+    from fastapi.responses import PlainTextResponse
+
+    # Sanitize request_id to prevent path traversal
+    safe_id = request_id.replace("/", "").replace("\\", "").replace("..", "")
+    filepath = Path(__file__).parent / "logs" / "failed_responses" / f"{safe_id}.txt"
+
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail=f"No saved raw response for request {request_id}")
+
+    content = filepath.read_text()
+    return PlainTextResponse(content)
 
 
 @app.get("/performance-dashboard")

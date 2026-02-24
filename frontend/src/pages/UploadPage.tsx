@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Platform, AnalysisResult } from '../types';
-import { analyzeImages, checkHealth, confirmAnalysis, createDraft, getDraft, APIError } from '../services/api';
+import { analyzeImagesWithProgress, checkHealth, confirmAnalysis, createDraft, getDraft, APIError } from '../services/api';
 import ImageUpload from '../components/ImageUpload';
 import LoadingState from '../components/LoadingState';
 import ResultsForm from '../components/ResultsForm';
@@ -33,6 +33,10 @@ function UploadPage() {
   const [loadedFromDraft, setLoadedFromDraft] = useState(false);
   const [ebayEnvironment, setEbayEnvironment] = useState<{ mode: string; isProduction: boolean } | null>(null);
   const [showStartOverConfirmation, setShowStartOverConfirmation] = useState(false);
+  const [analysisStage, setAnalysisStage] = useState<string | undefined>(undefined);
+  const [analysisProgress, setAnalysisProgress] = useState<number | undefined>(undefined);
+  const [analysisMessage, setAnalysisMessage] = useState<string | undefined>(undefined);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Check backend health on mount
   useEffect(() => {
@@ -162,26 +166,54 @@ function UploadPage() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setAnalysisStage(undefined);
+    setAnalysisProgress(undefined);
+    setAnalysisMessage(undefined);
+
+    // Create abort controller for cancel support
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     try {
       console.log(`Analyzing ${selectedFiles.length} image(s) with platform:`, platform);
-      console.log('User context:', userContext); // DEBUG
-      const analysisResult = await analyzeImages(selectedFiles, platform, userContext);
+      console.log('User context:', userContext);
+      const analysisResult = await analyzeImagesWithProgress(
+        selectedFiles,
+        platform,
+        userContext || undefined,
+        (stage, message, progress) => {
+          setAnalysisStage(stage);
+          setAnalysisMessage(message);
+          setAnalysisProgress(progress);
+        },
+        abortController.signal
+      );
       console.log('Analysis result:', analysisResult);
       setResult(analysisResult);
     } catch (err) {
       console.error('Analysis error:', err);
 
       if (err instanceof APIError) {
+        // Map status codes to user-friendly messages
+        const friendlyMessages: Record<number, string> = {
+          504: 'Analysis timed out. Try again — it often works on retry.',
+          429: 'AI service is busy. Please wait a moment and try again.',
+          503: 'AI service is overloaded. Try again in a few minutes.',
+          502: 'AI service error. Please try again.',
+        };
         setError({
-          message: err.message,
+          message: (err.statusCode && friendlyMessages[err.statusCode]) || err.message,
           details: err.details,
           statusCode: err.statusCode,
         });
       } else if (err instanceof Error) {
+        // Handle AbortError from timeout
+        const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
         setError({
-          message: err.message,
-          statusCode: 500,
+          message: isTimeout
+            ? 'Analysis timed out. Try again — it often works on retry.'
+            : err.message,
+          statusCode: isTimeout ? 504 : 500,
         });
       } else {
         setError({
@@ -192,6 +224,14 @@ function UploadPage() {
       }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleCancelAnalysis = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
   };
 
@@ -495,7 +535,14 @@ function UploadPage() {
         )}
 
         {/* Loading State */}
-        {loading && <LoadingState />}
+        {loading && (
+          <LoadingState
+            stage={analysisStage}
+            stageMessage={analysisMessage}
+            progress={analysisProgress}
+            onCancel={handleCancelAnalysis}
+          />
+        )}
 
         {/* Results */}
         {result && !loading && (

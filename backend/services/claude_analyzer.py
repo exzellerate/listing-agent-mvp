@@ -8,6 +8,7 @@ from datetime import datetime
 from anthropic import Anthropic
 from langsmith import traceable
 from models import AnalysisResponse, Platform, ImageAnalysis, FieldDiscrepancy
+from pathlib import Path
 from utils.performance_logger import PerformanceTracker
 from services.ebay.category_matcher import EbayCategoryMatcher
 from services.ebay.aspect_loader import get_aspect_loader, get_formatted_aspects_for_category
@@ -58,7 +59,7 @@ class ClaudeAnalyzer:
         logger.info(f"🔧 ClaudeAnalyzer.__init__ called with db={db is not None}")
         self.client = Anthropic(
             api_key=api_key,
-            timeout=180.0  # 3 minutes to allow for web search operations
+            timeout=300.0  # 5 minutes to allow for web search + tool loop operations
         )
         self.model = "claude-sonnet-4-5-20250929"
 
@@ -91,6 +92,56 @@ class ClaudeAnalyzer:
                 logger.warning(f"Failed to initialize eBay Taxonomy Service: {e}")
                 logger.warning("eBay taxonomy tools will not be available to Claude")
                 self.ebay_taxonomy_service = None
+
+    def _call_claude_with_retry(self, max_retries: int = 2, progress_callback=None, **kwargs):
+        """Call Claude API with retry logic for transient failures.
+
+        Args:
+            max_retries: Maximum number of retries (default 2, so up to 3 total attempts)
+            progress_callback: Optional callback to report retry status
+            **kwargs: Arguments passed to self.client.messages.create()
+
+        Returns:
+            Claude API response message
+        """
+        from anthropic import APITimeoutError, APIConnectionError, RateLimitError
+
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                return self.client.messages.create(**kwargs)
+            except (APITimeoutError, APIConnectionError) as e:
+                last_error = e
+                if attempt < max_retries:
+                    wait = (attempt + 1) * 1  # 1s, 2s
+                    logger.warning(f"Claude API {type(e).__name__} (attempt {attempt + 1}/{max_retries + 1}), retrying in {wait}s...")
+                    if progress_callback:
+                        progress_callback("retrying", f"Connection issue, retrying (attempt {attempt + 2})...")
+                    time.sleep(wait)
+                else:
+                    logger.error(f"Claude API {type(e).__name__} after {max_retries + 1} attempts")
+                    raise
+            except RateLimitError as e:
+                last_error = e
+                if attempt < max_retries:
+                    wait = (attempt + 1) * 5  # 5s, 10s
+                    logger.warning(f"Claude API rate limited (attempt {attempt + 1}/{max_retries + 1}), retrying in {wait}s...")
+                    if progress_callback:
+                        progress_callback("retrying", f"Rate limited, retrying in {wait}s...")
+                    time.sleep(wait)
+                else:
+                    logger.error(f"Claude API rate limited after {max_retries + 1} attempts")
+                    raise
+
+    async def _call_claude_with_retry_async(self, max_retries: int = 2, progress_callback=None, **kwargs):
+        """Async wrapper that runs the sync Claude call in a thread to avoid blocking the event loop."""
+        import asyncio
+        return await asyncio.to_thread(
+            self._call_claude_with_retry,
+            max_retries=max_retries,
+            progress_callback=progress_callback,
+            **kwargs
+        )
 
     def _get_platform_constraints(self, platform: Platform) -> Dict[str, Any]:
         """Get platform-specific constraints for titles and descriptions.
@@ -167,10 +218,10 @@ but DO NOT output the steps - only output the final JSON result.
 ## ⚠️ MANDATORY TOOL USAGE - READ THIS FIRST ⚠️
 
 You MUST use these tools in this exact order:
-1. **STEP 1-2**: Use `web_search` to verify product identity
+1. **Stage 3 **: Use `web_search` to verify product identity
 	CRITICAL: Do not rely solely on visual memory. You have access to web search - USE IT.
 
-2. **STEP 4 (MANDATORY)**: Call `search_ebay_categories` with product keywords - this returns BOTH the category and all REQUIRED, RECOMMENDED and OPTIONAL item specifics. 
+2. **Stage 4 (MANDATORY)**: Call `search_ebay_categories` with product keywords - this returns BOTH the category and all REQUIRED, RECOMMENDED and OPTIONAL item specifics. 
 
 ## AVAILABLE TOOLS
 - `web_search`: Search the web for product info, pricing, verification
@@ -188,7 +239,7 @@ CONTEXT:  All images are for the same item to be analyzed just available in diff
 
 # Your Objective
 
-Your primary goal is to **accurately identify the exact product being sold** and extract comprehensive product attributes. The most critical failure mode you must avoid is misidentifying products, which leads to incomplete attribute extraction.
+Your primary goal is to accurately identify the exact product being sold and extract comprehensive product attributes. The most critical failure mode you must avoid is misidentifying products, which leads to incomplete attribute extraction.
 
 You must accomplish the following:
 
@@ -558,7 +609,7 @@ Use the following conversion
 - **Spam trigger words:** "Free money", "Act now", "Limited time" (unless genuinely true)
 - **Unverifiable claims:** "Never used" (if clearly used in photos)
 - **All caps:** "BRAND NEW" (use "Brand New" instead)
-- **Shipping Commitments:** "Next-Day Shipping" or "Ships Free"
+- **Shipping or Delivery Commitments:** "Next-Day Shipping" or "Ships Free" or "Carefully Packaged"
 
 
 ## Stage 6: Final JSON Assembly
@@ -883,7 +934,9 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
         self,
         images_data: List[Tuple[bytes, str, ...]],
         platform: Platform = "ebay",
-        user_context: Optional[str] = None
+        user_context: Optional[str] = None,
+        request_id: Optional[str] = None,
+        progress_callback=None
     ) -> AnalysisResponse:
         """Analyze multiple product images in a single API call.
 
@@ -891,6 +944,7 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
             images_data: List of tuples containing (image_bytes, mime_type, [optional_url])
             platform: Target platform for optimization
             user_context: Optional user-provided context to improve analysis accuracy
+            progress_callback: Optional callable(stage, message) for progress reporting
 
         Returns:
             AnalysisResponse with unified analysis from all images
@@ -903,11 +957,14 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
 
         logger.info(f"Analyzing {len(images_data)} images for platform: {platform}")
 
+        if progress_callback:
+            progress_callback("validating", "Validating images...")
+
         # Extract image bytes and mime types (ignore optional URL if present)
         images_for_batch = [(img[0], img[1]) for img in images_data]
 
         # Analyze all images in a single API call
-        result = await self._analyze_images_batch(images_for_batch, platform, user_context)
+        result = await self._analyze_images_batch(images_for_batch, platform, user_context, request_id=request_id, progress_callback=progress_callback)
 
         analysis = result["analysis"]
         analysis_data = result["raw_data"]
@@ -994,6 +1051,11 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
         tracker.log_event("analysis_start", image_index=image_index, platform=str(platform))
 
         try:
+            # Initialize for error handler access
+            response_text = None
+            original_response_text = None
+            extraction_strategy_used = None
+
             # Encode image to base64
             encode_start = time.time()
             base64_image = base64.standard_b64encode(image_data).decode("utf-8")
@@ -1455,9 +1517,23 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
 
         except json.JSONDecodeError as e:
             logger.error(f"JSON parsing error: {str(e)}")
+            self._save_failed_response(
+                request_id=tracker.request_id,
+                error=str(e),
+                extraction_strategy=extraction_strategy_used if extraction_strategy_used else None,
+                extracted_text=response_text if response_text else None,
+                original_response=original_response_text if original_response_text else None,
+            )
             raise Exception(f"AI returned invalid JSON format. Please try again.")
         except ValueError as e:
             logger.error(f"Validation error: {str(e)}")
+            self._save_failed_response(
+                request_id=tracker.request_id,
+                error=str(e),
+                extraction_strategy=extraction_strategy_used if extraction_strategy_used else None,
+                extracted_text=response_text if response_text else None,
+                original_response=original_response_text if original_response_text else None,
+            )
             raise Exception(f"Invalid data in AI response: {str(e)}")
         except Exception as e:
             error_msg = str(e)
@@ -1479,7 +1555,9 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
         self,
         images_data: List[Tuple[bytes, str]],
         platform: Platform,
-        user_context: Optional[str] = None
+        user_context: Optional[str] = None,
+        request_id: Optional[str] = None,
+        progress_callback=None
     ) -> Dict[str, Any]:
         """Analyze multiple product images in a single Claude API call.
 
@@ -1487,6 +1565,7 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
             images_data: List of tuples containing (image_bytes, mime_type)
             platform: Target platform for optimization
             user_context: Optional user-provided context to improve analysis accuracy
+            request_id: Optional request ID for correlating logs across services
 
         Returns:
             Dictionary with 'analysis' (ImageAnalysis) and 'raw_data' (dict)
@@ -1495,10 +1574,15 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
             Exception: If API call fails, all images fail to encode, or response is invalid
         """
         # Initialize performance tracker
-        tracker = PerformanceTracker()
+        tracker = PerformanceTracker(request_id=request_id)
         tracker.log_event("batch_analysis_start", image_count=len(images_data), platform=str(platform))
 
         try:
+            # Initialize for error handler access
+            response_text = None
+            original_response_text = None
+            extraction_strategy_used = None
+
             # Encode all images to base64, skip failures
             encode_start = time.time()
             encoded_images = []
@@ -1538,6 +1622,9 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
                             total_bytes=total_bytes)
 
             logger.info(f"Encoded {len(encoded_images)} images ({skipped_count} skipped), total size: {total_bytes} bytes")
+
+            if progress_callback:
+                progress_callback("encoding", f"Encoded {len(encoded_images)} image(s)")
 
             # Build the analysis prompt
             prompt = self._build_analysis_prompt(platform, user_context)
@@ -1606,8 +1693,12 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
                 }
             ]
 
-            # Call Claude API with vision and all available tools
-            message = self.client.messages.create(
+            if progress_callback:
+                progress_callback("analyzing", "Sending images to Claude AI for analysis...")
+
+            # Call Claude API with vision and all available tools (with retry)
+            message = await self._call_claude_with_retry_async(
+                progress_callback=progress_callback,
                 model=self.model,
                 max_tokens=32768,  # Increased to accommodate verbose analysis stages + full JSON
                 tools=tools,
@@ -1625,10 +1716,22 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
             # ========================================
             # TOOL EXECUTION LOOP
             # ========================================
+            tool_loop_start = time.time()
+            MAX_ANALYSIS_ELAPSED = 270  # Break loop at 270s to avoid hitting 300s SDK timeout
+
             while message.stop_reason == "tool_use":
+                # Elapsed time guard — use what we have rather than timing out
+                elapsed = time.time() - api_start
+                if elapsed > MAX_ANALYSIS_ELAPSED:
+                    logger.warning(f"Analysis elapsed {elapsed:.0f}s > {MAX_ANALYSIS_ELAPSED}s limit — breaking tool loop to avoid timeout")
+                    tracker.log_event("tool_loop_elapsed_break", elapsed_seconds=elapsed)
+                    break
                 logger.info("=" * 80)
                 logger.info("CLAUDE REQUESTED TOOL USE")
                 logger.info("=" * 80)
+
+                if progress_callback:
+                    progress_callback("tool_use", "Claude is researching product details...")
 
                 # Extract tool use requests from message content
                 tool_uses = []
@@ -1690,11 +1793,11 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
                     "content": tool_results
                 })
 
-                message = self.client.messages.create(
+                message = await self._call_claude_with_retry_async(
                     model=self.model,
                     max_tokens=32768,
                     tools=tools,
-                    messages=conversation_messages
+                    messages=conversation_messages,
                 )
 
                 logger.info(f"Received response with stop_reason: {message.stop_reason}")
@@ -1784,6 +1887,9 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
             # Store original response for logging
             original_response_text = response_text
             extraction_strategy_used = None
+
+            if progress_callback:
+                progress_callback("parsing", "Parsing analysis results...")
 
             # ========================================
             # JSON PARSING (same strategies as single image)
@@ -1909,9 +2015,23 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
 
         except json.JSONDecodeError as e:
             logger.error(f"JSON parsing error: {str(e)}")
+            self._save_failed_response(
+                request_id=tracker.request_id,
+                error=str(e),
+                extraction_strategy=extraction_strategy_used if extraction_strategy_used else None,
+                extracted_text=response_text if response_text else None,
+                original_response=original_response_text if original_response_text else None,
+            )
             raise Exception(f"AI returned invalid JSON format. Please try again.")
         except ValueError as e:
             logger.error(f"Validation error: {str(e)}")
+            self._save_failed_response(
+                request_id=tracker.request_id,
+                error=str(e),
+                extraction_strategy=extraction_strategy_used if extraction_strategy_used else None,
+                extracted_text=response_text if response_text else None,
+                original_response=original_response_text if original_response_text else None,
+            )
             raise Exception(f"Invalid data in AI response: {str(e)}")
         except Exception as e:
             error_msg = str(e)
@@ -1927,6 +2047,32 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
                 raise Exception("AI service is temporarily overloaded. Please try again in a moment.")
             else:
                 raise Exception(f"Failed to analyze images: {error_msg}")
+
+    def _save_failed_response(
+        self,
+        request_id: str,
+        error: str,
+        extraction_strategy: Optional[str] = None,
+        extracted_text: Optional[str] = None,
+        original_response: Optional[str] = None,
+    ) -> None:
+        """Save raw Claude response to disk when JSON parsing fails."""
+        try:
+            failed_dir = Path(__file__).parent.parent / "logs" / "failed_responses"
+            failed_dir.mkdir(parents=True, exist_ok=True)
+            filepath = failed_dir / f"{request_id}.txt"
+            with open(filepath, "w") as f:
+                f.write(f"REQUEST_ID: {request_id}\n")
+                f.write(f"TIMESTAMP: {datetime.utcnow().isoformat()}Z\n")
+                f.write(f"EXTRACTION_STRATEGY: {extraction_strategy or 'N/A'}\n")
+                f.write(f"ERROR: {error}\n")
+                f.write(f"\n=== EXTRACTED TEXT (what was passed to json.loads) ===\n")
+                f.write(extracted_text or "(not available)")
+                f.write(f"\n\n=== ORIGINAL CLAUDE RESPONSE ===\n")
+                f.write(original_response or "(not available)")
+            logger.info(f"Saved failed response to {filepath}")
+        except Exception as save_err:
+            logger.error(f"Failed to save debug file: {save_err}")
 
     def find_best_category(
         self,

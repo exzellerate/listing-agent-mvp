@@ -137,7 +137,7 @@ export async function analyzeImages(
   try {
     // Timeout for image analysis with web search enabled
     // Using 300s base to allow for long-running analysis operations (proxy has 300s timeout)
-    const timeout = 300000 + (files.length - 1) * 30000; // 300s base + 30s per additional image
+    const timeout = 540000; // 9 minutes — must be less than proxy timeout (600s)
 
     const authHeaders = await getAuthHeaders();
     const response = await fetch(`${API_BASE_URL}/api/analyze`, {
@@ -216,6 +216,141 @@ export async function analyzeImage(
   platform: Platform
 ): Promise<AnalysisResult> {
   return analyzeImages([file], platform);
+}
+
+// Progress callback type for SSE streaming
+export type ProgressCallback = (stage: string, message: string, progress: number) => void;
+
+/**
+ * Analyze images with real-time progress updates via SSE.
+ * Falls back to regular /api/analyze if SSE connection fails.
+ */
+export async function analyzeImagesWithProgress(
+  files: File[],
+  platform: Platform,
+  userContext: string | undefined,
+  onProgress: ProgressCallback,
+  abortSignal?: AbortSignal
+): Promise<AnalysisResult> {
+  // Validate inputs (same as analyzeImages)
+  if (!files || files.length === 0) throw new APIError('No files provided', 400);
+  if (files.length > 5) throw new APIError('Maximum 5 images allowed', 400);
+  if (!['ebay', 'amazon', 'walmart'].includes(platform)) throw new APIError('Invalid platform selected', 400);
+
+  const maxSize = 10 * 1024 * 1024;
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+  for (let i = 0; i < files.length; i++) {
+    if (files[i].size > maxSize) throw new APIError(`Image ${i + 1} exceeds 10MB limit`, 400);
+    if (!allowedTypes.includes(files[i].type)) throw new APIError(`Invalid file type for image ${i + 1}`, 400);
+  }
+
+  const formData = new FormData();
+  files.forEach(file => formData.append('files', file));
+  formData.append('platform', platform);
+  if (userContext) formData.append('user_context', userContext);
+
+  try {
+    const authHeaders = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/api/analyze-stream`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: formData,
+      signal: abortSignal,
+    });
+
+    if (!response.ok) {
+      let errorMessage = 'Failed to start analysis stream';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.detail || errorData.error || errorMessage;
+      } catch { /* ignore parse errors */ }
+      throw new APIError(errorMessage, response.status);
+    }
+
+    if (!response.body) {
+      // No streaming support — fall back to regular endpoint
+      console.warn('No ReadableStream support, falling back to regular analyze');
+      return analyzeImages(files, platform, userContext);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let lastEventTime = Date.now();
+    const HEARTBEAT_TIMEOUT = 30000; // 30s with no event = dead connection
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      lastEventTime = Date.now();
+
+      // Parse SSE events from buffer
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (line.startsWith(': heartbeat') || line.trim() === '') continue;
+
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.slice(6);
+          try {
+            const event = JSON.parse(jsonStr);
+
+            if (event.stage === 'complete') {
+              const data = event.data;
+              if (!data.product_name || !data.suggested_title || !data.suggested_description) {
+                throw new APIError('Invalid response: Missing required fields', 500);
+              }
+              onProgress('complete', 'Analysis complete!', 100);
+              return data as AnalysisResult;
+            }
+
+            if (event.stage === 'error') {
+              throw new APIError(
+                event.message || 'Analysis failed',
+                event.error_code || 500
+              );
+            }
+
+            // Progress update
+            onProgress(event.stage, event.message, event.progress || 0);
+          } catch (parseErr) {
+            if (parseErr instanceof APIError) throw parseErr;
+            console.warn('Failed to parse SSE event:', jsonStr);
+          }
+        }
+      }
+
+      // Check for heartbeat timeout
+      if (Date.now() - lastEventTime > HEARTBEAT_TIMEOUT) {
+        reader.cancel();
+        throw new APIError('Connection lost during analysis. Please try again.', 504);
+      }
+    }
+
+    // Stream ended without complete event
+    throw new APIError('Analysis stream ended unexpectedly', 500);
+
+  } catch (error) {
+    if (error instanceof APIError) throw error;
+
+    // On SSE connection failure, fall back to regular endpoint
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      console.warn('SSE fetch failed, falling back to regular analyze');
+      return analyzeImages(files, platform, userContext);
+    }
+
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new APIError('Analysis was cancelled', 499);
+    }
+
+    throw new APIError(
+      `Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      500
+    );
+  }
 }
 
 export async function researchPricing(
