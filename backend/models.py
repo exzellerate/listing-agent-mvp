@@ -581,6 +581,8 @@ class SyncResponse(BaseModel):
     """Response model for sync operation."""
 
     listings_synced: int = Field(..., description="Number of listings synced")
+    listings_imported: int = Field(default=0, description="New listings imported from eBay")
+    listings_ended: int = Field(default=0, description="Listings marked as ended (no longer active on eBay)")
     metrics_updated: int = Field(default=0, description="Number of metrics updated")
     orders_processed: int = Field(default=0, description="Number of orders processed")
     listings_updated: int = Field(default=0, description="Number of listings updated with sold info")

@@ -374,6 +374,8 @@ export interface ListingsResponse {
 
 export interface SyncResponse {
   listings_synced: number;
+  listings_imported: number;
+  listings_ended: number;
   metrics_updated: number;
   orders_processed: number;
   listings_updated: number;

@@ -1931,57 +1931,205 @@ class EbayListingService:
 
         return listing
 
+    def _fetch_inventory_item(self, sku: str, token: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a single inventory item by SKU from eBay.
+
+        Args:
+            sku: The seller-defined SKU
+            token: Valid OAuth token
+
+        Returns:
+            Parsed JSON dict or None on failure
+        """
+        try:
+            url = f"{self.api_url}/sell/inventory/v1/inventory_item/{sku}"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            response = requests.get(url, headers=headers, timeout=30)
+            if response.ok:
+                return response.json()
+            else:
+                logger.warning(f"Could not fetch inventory item for SKU {sku}: HTTP {response.status_code}")
+                return None
+        except Exception as e:
+            logger.warning(f"Failed to fetch inventory item for SKU {sku}: {e}")
+            return None
+
+    def _fetch_active_listings_trading_api(self, token: str) -> List[Dict[str, Any]]:
+        """
+        Fetch all active listings using eBay Trading API (GetMyeBaySelling).
+        Returns ALL listings regardless of how they were created
+        (eBay app, other tools, Inventory API, etc.).
+
+        Args:
+            token: Valid OAuth token
+
+        Returns:
+            List of item dicts with keys: ItemID, Title, CurrentPrice, Currency,
+            Quantity, QuantityAvailable, ViewItemURL, GalleryURL, WatchCount, SKU
+        """
+        import xml.etree.ElementTree as ET
+
+        all_items = []
+        page = 1
+        total_pages = 1
+        ns = "urn:ebay:apis:eBLBaseComponents"
+
+        while page <= total_pages:
+            url = "https://api.ebay.com/ws/api.dll"
+            headers = {
+                "X-EBAY-API-SITEID": "0",
+                "X-EBAY-API-COMPATIBILITY-LEVEL": "967",
+                "X-EBAY-API-CALL-NAME": "GetMyeBaySelling",
+                "X-EBAY-API-IAF-TOKEN": token,
+                "Content-Type": "text/xml"
+            }
+            body = f'''<?xml version="1.0" encoding="utf-8"?>
+<GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ActiveList>
+    <Sort>TimeLeft</Sort>
+    <Pagination>
+      <EntriesPerPage>200</EntriesPerPage>
+      <PageNumber>{page}</PageNumber>
+    </Pagination>
+  </ActiveList>
+</GetMyeBaySellingRequest>'''
+
+            try:
+                response = requests.post(url, headers=headers, data=body, timeout=30)
+                response.raise_for_status()
+
+                root = ET.fromstring(response.text)
+                ack = root.find(f"{{{ns}}}Ack")
+                if ack is None or ack.text != "Success":
+                    errors = root.findall(f".//{{{ns}}}Errors/{{{ns}}}LongMessage")
+                    error_msgs = [e.text for e in errors if e.text]
+                    logger.error(f"GetMyeBaySelling failed: {error_msgs}")
+                    break
+
+                # Parse pagination
+                pagination = root.find(f".//{{{ns}}}ActiveList/{{{ns}}}PaginationResult")
+                if pagination is not None:
+                    tp = pagination.find(f"{{{ns}}}TotalNumberOfPages")
+                    if tp is not None and tp.text:
+                        total_pages = int(tp.text)
+
+                # Parse items
+                items_el = root.findall(f".//{{{ns}}}ActiveList/{{{ns}}}ItemArray/{{{ns}}}Item")
+                for item_el in items_el:
+                    item = {}
+                    # ItemID
+                    el = item_el.find(f"{{{ns}}}ItemID")
+                    item["ItemID"] = el.text if el is not None else None
+
+                    # Title
+                    el = item_el.find(f"{{{ns}}}Title")
+                    item["Title"] = el.text if el is not None else None
+
+                    # SKU
+                    el = item_el.find(f"{{{ns}}}SKU")
+                    item["SKU"] = el.text if el is not None else None
+
+                    # Price (prefer ConvertedCurrentPrice in USD)
+                    el = item_el.find(f".//{{{ns}}}SellingStatus/{{{ns}}}ConvertedCurrentPrice")
+                    if el is not None and el.text:
+                        item["CurrentPrice"] = float(el.text)
+                        item["Currency"] = el.get("currencyID", "USD")
+                    else:
+                        el = item_el.find(f".//{{{ns}}}SellingStatus/{{{ns}}}CurrentPrice")
+                        if el is not None and el.text:
+                            item["CurrentPrice"] = float(el.text)
+                            item["Currency"] = el.get("currencyID", "USD")
+                        else:
+                            item["CurrentPrice"] = 0.0
+                            item["Currency"] = "USD"
+
+                    # Quantity
+                    el = item_el.find(f"{{{ns}}}QuantityAvailable")
+                    item["QuantityAvailable"] = int(el.text) if el is not None and el.text else 1
+
+                    # WatchCount
+                    el = item_el.find(f"{{{ns}}}WatchCount")
+                    item["WatchCount"] = int(el.text) if el is not None and el.text else 0
+
+                    # ViewItemURL
+                    el = item_el.find(f".//{{{ns}}}ListingDetails/{{{ns}}}ViewItemURL")
+                    item["ViewItemURL"] = el.text if el is not None else None
+
+                    # GalleryURL (thumbnail)
+                    el = item_el.find(f".//{{{ns}}}PictureDetails/{{{ns}}}GalleryURL")
+                    item["GalleryURL"] = el.text if el is not None else None
+
+                    # Category ID
+                    el = item_el.find(f"{{{ns}}}PrimaryCategory/{{{ns}}}CategoryID")
+                    item["CategoryID"] = el.text if el is not None else None
+
+                    all_items.append(item)
+
+                logger.info(f"Fetched page {page}/{total_pages}: {len(items_el)} active listings")
+                page += 1
+
+            except Exception as e:
+                logger.error(f"Failed to fetch active listings page {page}: {e}")
+                break
+
+        logger.info(f"Total active listings from Trading API: {len(all_items)}")
+        return all_items
+
     def get_all_active_offers(self, user_id: str = "default_user", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """
-        Fetch all active offers from eBay Inventory API.
+        Fetch all active listings from eBay using the Trading API.
+        Returns ALL listings regardless of how they were created.
 
         Args:
             user_id: User identifier
-            limit: Number of offers to fetch per page
-            offset: Offset for pagination
+            limit: Unused (kept for backward compatibility)
+            offset: Unused (kept for backward compatibility)
 
         Returns:
-            List of offer dictionaries from eBay API
+            List of normalized offer dicts from eBay
 
         Raises:
             Exception: If API call fails
         """
-        logger.info(f"Fetching active offers from eBay (limit={limit}, offset={offset})")
+        logger.info("Fetching all active listings from eBay")
 
-        # Get valid OAuth token
         token = self.oauth_service.get_valid_token(user_id)
         if not token:
             raise ValueError("No valid eBay authentication token")
 
-        url = f"{self.api_url}/sell/inventory/v1/offer"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
-
-        params = {
-            "limit": min(limit, 100),  # eBay max is 100
-            "offset": offset
-        }
-
         try:
-            response = requests.get(url, headers=headers, params=params, timeout=30)
-            response.raise_for_status()
+            items = self._fetch_active_listings_trading_api(token)
 
-            data = response.json()
-            offers = data.get("offers", [])
+            # Normalize Trading API items to look like offer dicts for sync
+            offers = []
+            for item in items:
+                offer = {
+                    "offerId": None,
+                    "sku": item.get("SKU") or item.get("ItemID"),  # Use ItemID as SKU fallback
+                    "listingId": item.get("ItemID"),
+                    "status": "PUBLISHED",
+                    "pricingSummary": {
+                        "price": {
+                            "value": str(item.get("CurrentPrice", 0.0)),
+                            "currency": item.get("Currency", "USD")
+                        }
+                    },
+                    "availableQuantity": item.get("QuantityAvailable", 1),
+                    "categoryId": item.get("CategoryID"),
+                    "listingDescription": "",
+                    "_tradingItem": item
+                }
+                offers.append(offer)
 
-            logger.info(f"Fetched {len(offers)} active offers from eBay")
+            logger.info(f"Fetched {len(offers)} total active listings from eBay")
             return offers
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to fetch active offers: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                try:
-                    error_data = e.response.json()
-                    logger.error(f"eBay error response: {json.dumps(error_data, indent=2)}")
-                except:
-                    pass
+        except Exception as e:
+            logger.error(f"Failed to fetch active listings: {e}")
             raise Exception(f"Failed to fetch active offers from eBay: {str(e)}")
 
     def get_offer_details(self, offer_id: str, user_id: str = "default_user") -> Dict[str, Any]:
@@ -2092,15 +2240,18 @@ class EbayListingService:
 
         summary = {
             "listings_synced": 0,
+            "listings_imported": 0,
+            "listings_ended": 0,
             "metrics_updated": 0,
             "errors": []
         }
 
         try:
-            # Fetch all active offers from eBay
-            offers = self.get_all_active_offers(user_id, limit=100, offset=0)
+            # Fetch all offers from eBay (handles pagination internally)
+            all_offers = self.get_all_active_offers(user_id)
+            logger.info(f"Fetched {len(all_offers)} total offers from eBay")
 
-            for offer in offers:
+            for offer in all_offers:
                 try:
                     offer_id = offer.get("offerId")
                     sku = offer.get("sku")
@@ -2114,7 +2265,62 @@ class EbayListingService:
                     listing = self.get_listing_by_sku(sku)
 
                     if not listing:
-                        logger.info(f"Listing with SKU {sku} not found in database, skipping")
+                        # Import this unknown listing from eBay
+                        logger.info(f"Importing unknown listing with SKU {sku} from eBay")
+                        try:
+                            # Extract data from the offer
+                            ebay_status = offer.get("status", "")
+                            price_info = offer.get("pricingSummary", {}).get("price", {})
+                            price = float(price_info.get("value", 0.0))
+                            quantity = offer.get("availableQuantity", 1)
+                            category_id = offer.get("categoryId")
+                            description = offer.get("listingDescription", "")
+
+                            # Use Trading API item data attached by get_all_active_offers
+                            trading_item = offer.get("_tradingItem", {})
+                            title = trading_item.get("Title") or f"eBay Listing {sku}"
+                            gallery_url = trading_item.get("GalleryURL")
+                            image_urls = [gallery_url] if gallery_url else []
+                            condition = "USED"
+
+                            # Use ViewItemURL from Trading API (most reliable)
+                            ebay_listing_url = trading_item.get("ViewItemURL")
+                            if not ebay_listing_url and listing_id:
+                                if self.environment == "PRODUCTION":
+                                    ebay_listing_url = f"https://www.ebay.com/itm/{listing_id}"
+                                else:
+                                    ebay_listing_url = f"https://www.sandbox.ebay.com/itm/{listing_id}"
+
+                            # Create new EbayListing row
+                            listing = EbayListing(
+                                analysis_id=None,
+                                sku=sku,
+                                listing_id=listing_id,
+                                offer_id=offer_id,
+                                title=title,
+                                description=description,
+                                price=price,
+                                quantity=quantity,
+                                condition=condition,
+                                category_id=category_id,
+                                image_urls=image_urls,
+                                status=ListingStatus.PUBLISHED,
+                                ebay_status=ebay_status,
+                                ebay_listing_url=ebay_listing_url,
+                                published_at=datetime.utcnow(),
+                                created_at=datetime.utcnow(),
+                                updated_at=datetime.utcnow(),
+                            )
+                            self.db.add(listing)
+                            self.db.commit()
+
+                            summary["listings_imported"] += 1
+                            logger.info(f"Imported listing SKU {sku} (title: {title})")
+                        except Exception as import_err:
+                            error_msg = f"Error importing offer {offer_id} (SKU {sku}): {str(import_err)}"
+                            logger.error(error_msg)
+                            summary["errors"].append(error_msg)
+                            self.db.rollback()
                         continue
 
                     # Update listing data from eBay
@@ -2129,18 +2335,20 @@ class EbayListingService:
                     if ebay_status:
                         listing.ebay_status = ebay_status
 
-                    # Update eBay listing URL
-                    if listing_id and self.environment == "PRODUCTION":
+                    # Update eBay listing URL (prefer ViewItemURL from Trading API)
+                    trading_item = offer.get("_tradingItem", {})
+                    view_url = trading_item.get("ViewItemURL")
+                    if view_url:
+                        listing.ebay_listing_url = view_url
+                    elif listing_id and self.environment == "PRODUCTION":
                         listing.ebay_listing_url = f"https://www.ebay.com/itm/{listing_id}"
                     elif listing_id:
                         listing.ebay_listing_url = f"https://www.sandbox.ebay.com/itm/{listing_id}"
 
-                    # Fetch and update metrics (if listing is published)
-                    if listing_id:
-                        metrics = self.get_listing_metrics(listing_id, user_id)
-                        listing.views = metrics.get("views", 0)
-                        listing.watchers = metrics.get("watchers", 0)
-                        summary["metrics_updated"] += 1
+                    # Update watchers from Trading API data
+                    watch_count = trading_item.get("WatchCount", 0)
+                    listing.watchers = watch_count
+                    summary["metrics_updated"] += 1
 
                     listing.updated_at = datetime.utcnow()
                     self.db.commit()
@@ -2153,7 +2361,26 @@ class EbayListingService:
                     logger.error(error_msg)
                     summary["errors"].append(error_msg)
 
-            logger.info(f"Sync completed: {summary['listings_synced']} listings synced, "
+            # Mark published listings not found on eBay as ended
+            active_skus = {offer.get("sku") for offer in all_offers if offer.get("sku")}
+            published_listings = self.db.query(EbayListing).filter(
+                EbayListing.status == ListingStatus.PUBLISHED
+            ).all()
+
+            for listing in published_listings:
+                if listing.sku not in active_skus:
+                    listing.status = ListingStatus.CANCELLED
+                    listing.ebay_status = "ENDED"
+                    listing.updated_at = datetime.utcnow()
+                    summary["listings_ended"] += 1
+                    logger.info(f"Marked listing {listing.sku} (ID: {listing.id}) as ended — no longer active on eBay")
+
+            if summary["listings_ended"] > 0:
+                self.db.commit()
+
+            logger.info(f"Sync completed: {summary['listings_synced']} synced, "
+                       f"{summary['listings_imported']} imported, "
+                       f"{summary['listings_ended']} ended, "
                        f"{summary['metrics_updated']} metrics updated, {len(summary['errors'])} errors")
 
             return summary

@@ -3346,12 +3346,19 @@ async def sync_listings(
         logger.info("Starting manual sync of eBay listings")
         active_summary = listing_service.sync_listings_from_ebay("default_user")
 
-        # Sync sold listings
-        sold_summary = listing_service.update_sold_listings("default_user")
+        # Sync sold listings (non-fatal — don't let this block active sync results)
+        sold_summary = {"orders_processed": 0, "listings_updated": 0, "errors": []}
+        try:
+            sold_summary = listing_service.update_sold_listings("default_user")
+        except Exception as sold_err:
+            logger.warning(f"Sold listings sync failed (non-fatal): {sold_err}")
+            sold_summary["errors"].append(f"Sold sync failed: {str(sold_err)}")
 
         # Combine summaries
         combined_summary = SyncResponse(
             listings_synced=active_summary.get("listings_synced", 0),
+            listings_imported=active_summary.get("listings_imported", 0),
+            listings_ended=active_summary.get("listings_ended", 0),
             metrics_updated=active_summary.get("metrics_updated", 0),
             orders_processed=sold_summary.get("orders_processed", 0),
             listings_updated=sold_summary.get("listings_updated", 0),

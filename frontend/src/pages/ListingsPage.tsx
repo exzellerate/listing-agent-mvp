@@ -50,11 +50,11 @@ export default function ListingsPage() {
       setSyncMessage(null);
       const result = await syncListings();
 
-      setSyncMessage(
-        `Synced ${result.listings_synced} listings, ` +
-        `updated ${result.metrics_updated} metrics, ` +
-        `processed ${result.orders_processed} orders`
-      );
+      const parts = [`Synced ${result.listings_synced} listings`];
+      if (result.listings_imported > 0) parts.push(`imported ${result.listings_imported} new`);
+      if (result.listings_ended > 0) parts.push(`${result.listings_ended} ended`);
+      parts.push(`updated ${result.metrics_updated} metrics`);
+      setSyncMessage(parts.join(', '));
 
       // Reload current listings
       await loadListings();
@@ -246,7 +246,11 @@ export default function ListingsPage() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {listings.map((listing) => (
-                    <tr key={listing.id} className="hover:bg-gray-50">
+                    <tr
+                      key={listing.id}
+                      className={`hover:bg-gray-50 ${listing.ebay_listing_url ? 'cursor-pointer' : ''}`}
+                      onClick={() => listing.ebay_listing_url && window.open(listing.ebay_listing_url, '_blank', 'noopener,noreferrer')}
+                    >
                       <td className="px-4 py-4 whitespace-nowrap">
                         {listing.image_urls && listing.image_urls.length > 0 ? (
                           <img
@@ -301,7 +305,7 @@ export default function ListingsPage() {
                           ? formatDate(listing.published_at)
                           : formatDate(listing.sold_at)}
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                         {listing.ebay_listing_url ? (
                           <a
                             href={listing.ebay_listing_url}
