@@ -75,7 +75,8 @@ class ProductAnalysis(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
 
     # Image identification
-    image_path = Column(String(512), nullable=True, comment="Original path if available")
+    image_path = Column(String(512), nullable=True, comment="Primary image URL (first image)")
+    image_urls = Column(JSON, nullable=True, comment="JSON array of all uploaded image URLs")
     image_hash = Column(String(64), nullable=False, index=True, comment="Perceptual hash (dhash) for similarity matching")
 
     # Timestamps

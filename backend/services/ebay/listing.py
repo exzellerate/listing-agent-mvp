@@ -183,15 +183,12 @@ class EbayListingService:
                 listing.image_urls = image_urls
                 self.db.commit()
             elif listing.image_urls and len(listing.image_urls) > 0:
-                # Upload from URLs via eBay Media API
+                # Upload images to eBay via Media API (binary preferred, URL fallback)
                 self._update_listing_status(listing.id, ListingStatus.UPLOADING_IMAGES)
-                ebay_image_urls = self._upload_images_from_urls(listing.image_urls, user_id)
-                if ebay_image_urls:
-                    listing.image_urls = ebay_image_urls
-                    self.db.commit()
-                    logger.info(f"Uploaded {len(ebay_image_urls)} images to eBay")
-                else:
-                    logger.warning("No images were successfully uploaded to eBay")
+                ebay_image_urls = self._upload_images_for_listing(listing.image_urls, user_id)
+                listing.image_urls = ebay_image_urls
+                self.db.commit()
+                logger.info(f"Uploaded {len(ebay_image_urls)} images to eBay")
 
             # Step 3: Create inventory item
             self._update_listing_status(listing.id, ListingStatus.CREATING_INVENTORY)
@@ -684,28 +681,33 @@ class EbayListingService:
             "This requires eBay Picture Services integration."
         )
 
-    def _upload_images_from_urls(
+    def _upload_images_for_listing(
         self,
         image_urls: List[str],
         user_id: str
     ) -> List[str]:
         """
-        Upload images to eBay from URLs using the Media API.
+        Upload images to eBay using the Media API.
+
+        Prefers binary upload (createImageFromFile) by reading files from disk.
+        Falls back to URL-based upload (createImageFromUrl) if file read fails.
 
         Args:
-            image_urls: List of publicly accessible image URLs
+            image_urls: List of image URLs (used to locate files on disk)
             user_id: User identifier
 
         Returns:
             List of eBay-hosted image URLs
+
+        Raises:
+            Exception: If no images could be uploaded
         """
-        logger.info(f"Uploading {len(image_urls)} images from URLs via eBay Media API")
+        logger.info(f"Uploading {len(image_urls)} images to eBay Media API")
 
         # Get OAuth token
         token = self.oauth_service.get_valid_token(user_id)
         if not token:
-            logger.error("No valid OAuth token available for Media API")
-            return []
+            raise Exception("No valid eBay authentication token for image upload")
 
         # Create Media API service
         media_service = EbayMediaService(
@@ -713,19 +715,67 @@ class EbayListingService:
             environment=self.environment
         )
 
-        # Upload images (synchronous wrapper around async method)
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # Try to read image files from disk for binary upload
+        from pathlib import Path
+        from urllib.parse import urlparse
+        uploads_dir = Path(__file__).parent.parent.parent / "uploads"
 
-        ebay_urls = loop.run_until_complete(
-            media_service.upload_multiple_images(image_urls)
-        )
+        images_for_binary = []  # List of (bytes, filename)
+        urls_for_fallback = []  # URLs where binary read failed
+
+        for url in image_urls:
+            # Extract filename from URL path
+            parsed = urlparse(url)
+            filename = os.path.basename(parsed.path)
+            filepath = uploads_dir / filename
+
+            if filepath.exists():
+                try:
+                    image_data = filepath.read_bytes()
+                    images_for_binary.append((image_data, filename))
+                    logger.info(f"Read image from disk: {filename} ({len(image_data)} bytes)")
+                except Exception as e:
+                    logger.warning(f"Failed to read {filepath}: {e}, will try URL upload")
+                    urls_for_fallback.append(url)
+            else:
+                logger.warning(f"Image file not found on disk: {filepath}, will try URL upload")
+                urls_for_fallback.append(url)
+
+        # Run async uploads in a separate thread to avoid event loop conflicts
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+
+        ebay_urls = []
+
+        # Primary: binary upload
+        if images_for_binary:
+            logger.info(f"Uploading {len(images_for_binary)} images via binary upload (createImageFromFile)")
+
+            def _run_binary_upload():
+                return asyncio.run(media_service.upload_multiple_images_from_files(images_for_binary))
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                ebay_urls.extend(pool.submit(_run_binary_upload).result())
+
+        # Fallback: URL-based upload for any files we couldn't read
+        if urls_for_fallback:
+            logger.info(f"Uploading {len(urls_for_fallback)} images via URL upload (createImageFromUrl)")
+
+            def _run_url_upload():
+                return asyncio.run(media_service.upload_multiple_images(urls_for_fallback))
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                ebay_urls.extend(pool.submit(_run_url_upload).result())
 
         logger.info(f"Successfully uploaded {len(ebay_urls)}/{len(image_urls)} images to eBay")
+
+        if not ebay_urls:
+            raise Exception(
+                f"Failed to upload any images to eBay. "
+                f"Attempted {len(images_for_binary)} binary + {len(urls_for_fallback)} URL uploads. "
+                f"Check logs for eBay Media API errors."
+            )
+
         return ebay_urls
 
     def _get_category_metadata(self, category_id: str, user_id: str) -> Dict[str, Any]:
@@ -1094,17 +1144,34 @@ class EbayListingService:
                        f"{sum(1 for s in item_specifics if s['required'])} required")
 
         # Build inventory item payload
-        # Map our condition values to eBay's condition enum
+        # Map condition values to eBay's condition enum
+        # Handles both enum values (from dropdown) and AI-generated text
         condition_mapping = {
+            # Enum values (from frontend dropdown)
             "NEW": "NEW",
             "LIKE_NEW": "LIKE_NEW",
             "USED_EXCELLENT": "USED_EXCELLENT",
             "USED_GOOD": "USED_GOOD",
             "USED_ACCEPTABLE": "USED_ACCEPTABLE",
-            "FOR_PARTS_OR_NOT_WORKING": "FOR_PARTS_OR_NOT_WORKING"
+            "FOR_PARTS_OR_NOT_WORKING": "FOR_PARTS_OR_NOT_WORKING",
+            # AI-generated text variations
+            "USED - LIKE NEW": "LIKE_NEW",
+            "USED - EXCELLENT": "USED_EXCELLENT",
+            "USED - GOOD": "USED_GOOD",
+            "USED - ACCEPTABLE": "USED_ACCEPTABLE",
+            "EXCELLENT": "USED_EXCELLENT",
+            "GOOD": "USED_GOOD",
+            "LIKE NEW": "LIKE_NEW",
+            "VERY GOOD": "USED_GOOD",
+            "REFURBISHED": "LIKE_NEW",
+            "OPEN BOX": "LIKE_NEW",
+            "PRE-OWNED": "USED_GOOD",
+            "FOR PARTS": "FOR_PARTS_OR_NOT_WORKING",
         }
 
-        ebay_condition = condition_mapping.get(listing.condition, "USED_EXCELLENT")
+        raw_condition = (listing.condition or "").strip().upper()
+        ebay_condition = condition_mapping.get(raw_condition, "USED_EXCELLENT")
+        logger.info(f"Condition mapping: '{listing.condition}' -> '{ebay_condition}'")
 
         # If we have valid conditions for this category, verify our condition is valid
         # If not, use the first valid condition
@@ -1123,8 +1190,8 @@ class EbayListingService:
             "condition": ebay_condition,
             "conditionDescription": f"Condition: {ebay_condition.replace('_', ' ').title()}",
             "product": {
-                "title": listing.title,
-                "description": listing.description
+                "title": listing.title[:80],
+                "description": listing.description[:4000] if listing.description else ""
             }
         }
 
@@ -1277,6 +1344,12 @@ class EbayListingService:
 
         try:
             response = requests.put(url, headers=headers, json=payload, timeout=60)
+
+            # Log response details before raising
+            if not response.ok:
+                logger.error(f"Inventory item creation failed: HTTP {response.status_code}")
+                logger.error(f"eBay error response body: {response.text}")
+
             response.raise_for_status()
 
             # Log the response to see if eBay provides any warnings
@@ -1301,11 +1374,13 @@ class EbayListingService:
             if hasattr(e, 'response') and e.response is not None:
                 try:
                     error_data = e.response.json()
-                    logger.error(f"eBay error response: {error_data}")
-                    error_msg = error_data.get('errors', [{}])[0].get('message', str(e))
-                    raise Exception(f"eBay inventory creation error: {error_msg}")
-                except:
-                    pass
+                    logger.error(f"eBay error response: {json.dumps(error_data, indent=2)}")
+                    errors = error_data.get('errors', [])
+                    if errors:
+                        error_msgs = [f"{err.get('errorId', '?')}: {err.get('message', '?')} (params: {err.get('parameters', [])})" for err in errors]
+                        raise Exception(f"eBay inventory creation error: {'; '.join(error_msgs)}")
+                except (ValueError, KeyError):
+                    logger.error(f"eBay raw error response: {e.response.text}")
             raise Exception(f"Failed to create inventory item: {str(e)}")
 
     def _get_fulfillment_policy_details(self, policy_id: str, user_id: str) -> Optional[Dict[str, Any]]:

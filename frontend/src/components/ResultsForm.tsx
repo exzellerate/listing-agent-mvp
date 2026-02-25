@@ -570,51 +570,7 @@ export default function ResultsForm({ result, price, onPriceChange }: ResultsFor
         </div>
       </div>
 
-      {/* Key Features */}
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <label className="block text-sm font-medium text-gray-700">
-            Key Features
-          </label>
-          <CopyButton text={features.join('\n• ')} label="Copy All" />
-        </div>
-        <ul className="space-y-2">
-          {features.map((feature, index) => (
-            <li
-              key={index}
-              className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-md"
-            >
-              <span className="flex-1">{feature}</span>
-              <button
-                onClick={() => removeFeature(index)}
-                className="text-red-600 hover:text-red-700 text-sm font-medium"
-                aria-label={`Remove feature: ${feature}`}
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={newFeature}
-            onChange={(e) => setNewFeature(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && addFeature()}
-            placeholder="Add a new feature"
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-            aria-label="New feature input"
-          />
-          <button
-            onClick={addFeature}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium"
-            aria-label="Add feature"
-          >
-            Add
-          </button>
-        </div>
-      </div>
+      {/* Key Features - hidden from UI but data preserved for listing */}
     </div>
   );
 }

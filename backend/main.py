@@ -555,12 +555,14 @@ async def analyze_image(
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
 
-        # Extract first image URL from images_data
-        first_image_url = images_data[0][2] if images_data and len(images_data[0]) > 2 else None
+        # Extract all image URLs from images_data
+        all_image_urls = [img[2] for img in images_data if len(img) > 2]
+        first_image_url = all_image_urls[0] if all_image_urls else None
 
         # Store analysis in database
         analysis = ProductAnalysis(
-            image_path=first_image_url,  # Store the HTTPS URL instead of filename
+            image_path=first_image_url,
+            image_urls=all_image_urls,  # Store ALL uploaded image URLs
             image_hash=image_hashes[0],  # Use first image hash as primary
             created_at=datetime.utcnow(),
             ai_product_name=result.product_name,
@@ -889,31 +891,43 @@ async def analyze_image_stream(
                 except Exception as cat_err:
                     logger.warning(f"Category matching failed in SSE endpoint: {cat_err}")
 
-            # Store in database (simplified — reuses pattern from main endpoint)
+            # Store in database (must match column names from main endpoint)
             try:
-                user_id = get_user_id_from_request(request, user) if user else "default_user"
+                all_image_urls = [img[2] for img in images_data if len(img) > 2]
+                first_image_url = all_image_urls[0] if all_image_urls else None
                 analysis_record = ProductAnalysis(
-                    user_id=user_id,
+                    image_path=first_image_url,
+                    image_urls=all_image_urls,
+                    image_hash=image_hashes[0] or "unknown",
+                    created_at=datetime.utcnow(),
+                    ai_product_name=result.product_name,
+                    ai_brand=result.brand,
+                    ai_category=result.category,
+                    ai_condition=result.condition,
+                    ai_color=result.color,
+                    ai_material=result.material,
+                    ai_model_number=result.model_number,
+                    ai_title=result.suggested_title,
+                    ai_description=result.suggested_description,
+                    ai_price_range=None,
+                    ai_features=result.key_features,
+                    ai_confidence=result.confidence_score,
+                    user_action=UserAction.PENDING,
                     platform=platform,
                     source=source,
-                    image_hash=image_hashes[0] if image_hashes else None,
-                    product_name=result.product_name,
-                    brand=result.brand,
-                    category=result.category,
-                    condition=result.condition,
-                    suggested_title=result.suggested_title,
-                    suggested_description=result.suggested_description,
-                    confidence_score=result.confidence_score,
-                    images_analyzed=len(images_data),
-                    image_urls=[img[2] for img in images_data] if images_data else [],
-                    raw_analysis=result.dict(),
+                    learned_product_id=learned_product_id,
+                    suggested_category_id=result.suggested_category_id,
+                    ebay_category_suggestions=[cat.dict() for cat in result.ebay_category_suggestions] if result.ebay_category_suggestions else None,
+                    ebay_category=result.ebay_category if hasattr(result, 'ebay_category') else None,
+                    ebay_aspects=result.ebay_aspects if hasattr(result, 'ebay_aspects') else None,
                 )
                 db.add(analysis_record)
                 db.commit()
                 db.refresh(analysis_record)
                 result.analysis_id = analysis_record.id
+                logger.info(f"SSE analysis stored with ID: {analysis_record.id}")
             except Exception as db_err:
-                logger.warning(f"Failed to save analysis to DB in SSE endpoint: {db_err}")
+                logger.error(f"Failed to save analysis to DB in SSE endpoint: {db_err}")
                 db.rollback()
 
             await progress_queue.put({"stage": "complete", "data": result.dict()})
@@ -2061,15 +2075,19 @@ async def create_ebay_listing(
         oauth_service = get_ebay_oauth_service(db)
         listing_service = get_ebay_listing_service(db, oauth_service)
 
-        # Get image URL from analysis if available
+        # Get image URLs from analysis if available
         image_urls = None
         if analysis_id:
             from database_models import ProductAnalysis
             analysis = db.query(ProductAnalysis).filter(ProductAnalysis.id == analysis_id).first()
-            if analysis and analysis.image_path:
-                # The image_path contains the HTTPS URL from the frontend
-                image_urls = [analysis.image_path]
-                logger.info(f"Using image from analysis: {analysis.image_path}")
+            if analysis:
+                # Prefer full image_urls array; fall back to single image_path
+                if analysis.image_urls:
+                    image_urls = analysis.image_urls
+                    logger.info(f"Using {len(image_urls)} images from analysis: {image_urls}")
+                elif analysis.image_path:
+                    image_urls = [analysis.image_path]
+                    logger.info(f"Using single image from analysis: {analysis.image_path}")
 
         # Parse item_specifics JSON if provided
         parsed_item_specifics = None
