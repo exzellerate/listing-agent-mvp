@@ -24,7 +24,7 @@ const Sidebar = () => {
   const navigationItems = [
     {
       name: 'Upload & Analyze',
-      path: '/',
+      path: '/upload',
       icon: Upload,
     },
     {

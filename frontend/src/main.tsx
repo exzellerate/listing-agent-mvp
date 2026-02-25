@@ -32,8 +32,8 @@ createRoot(document.getElementById('root')!).render(
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
-            <Route path="/sign-in/*" element={<SignIn routing="path" path="/sign-in" />} />
-            <Route path="/sign-up/*" element={<SignUp routing="path" path="/sign-up" />} />
+            <Route path="/sign-in/*" element={<SignIn routing="path" path="/sign-in" fallbackRedirectUrl="/upload" />} />
+            <Route path="/sign-up/*" element={<SignUp routing="path" path="/sign-up" fallbackRedirectUrl="/upload" />} />
 
             {/* Protected routes - require authentication */}
             <Route element={<ProtectedRoute />}>
