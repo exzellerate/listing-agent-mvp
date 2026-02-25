@@ -87,6 +87,9 @@ function UploadPage() {
         try {
           const draft = await getDraft(parseInt(draftId, 10));
 
+          // Extract enriched analysis data from backend (if available)
+          const analysisExtra = draft.extra_data?._analysis;
+
           // Convert draft to AnalysisResult format
           const analysisResult: AnalysisResult = {
             product_name: draft.product_name || '',
@@ -99,7 +102,7 @@ function UploadPage() {
             key_features: draft.features || [],
             suggested_title: draft.title,
             suggested_description: draft.description,
-            confidence_score: 1.0,
+            confidence_score: analysisExtra?.ai_confidence ?? 100,
             images_analyzed: 0,
             individual_analyses: [],
             discrepancies: [],
@@ -111,6 +114,11 @@ function UploadPage() {
             ambiguities: [],
             reasoning: null,
             analysis_id: draft.analysis_id || undefined,
+            image_urls: analysisExtra?.image_urls || draft.image_paths || [],
+            ebay_category: analysisExtra?.ebay_category || undefined,
+            ebay_aspects: analysisExtra?.ebay_aspects || undefined,
+            ebay_category_suggestions: analysisExtra?.ebay_category_suggestions || undefined,
+            suggested_category_id: analysisExtra?.suggested_category_id || undefined,
           };
 
           setResult(analysisResult);
@@ -566,6 +574,33 @@ function UploadPage() {
               </div>
             )}
 
+            {/* Draft Images Section - Show server-hosted images from analysis */}
+            {loadedFromDraft && result.image_urls && result.image_urls.length > 0 && (
+              <div>
+                <div className="inline-block bg-blue-100 text-blue-700 text-xs font-medium px-3 py-1.5 rounded-md mb-3">
+                  Product Images
+                </div>
+                <div className="grid grid-cols-6 gap-2">
+                  {result.image_urls.map((url, idx) => (
+                    <div key={idx} className="relative group">
+                      <div className="w-full aspect-square bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
+                        <img
+                          src={url.startsWith('http') ? url : `${API_BASE_URL}${url}`}
+                          alt={`Product ${idx + 1}`}
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      {idx === 0 && (
+                        <div className="absolute top-1 left-1 bg-black text-white text-[10px] px-1.5 py-0.5 rounded font-medium">
+                          Primary
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Draft Mode Badge */}
             {loadedFromDraft && (
               <div className="bg-green-50 border-2 border-green-200 rounded-xl p-4 flex items-center justify-between shadow-md">
@@ -647,19 +682,8 @@ function UploadPage() {
               />
             </div>
 
-            {/* eBay Category & Aspects Section - only for eBay platform and not from draft */}
-            {(() => {
-              console.log('UploadPage.tsx - Checking CategoryAspectsSection conditions:');
-              console.log('  platform:', platform);
-              console.log('  platform === "ebay":', platform === 'ebay');
-              console.log('  loadedFromDraft:', loadedFromDraft);
-              console.log('  !loadedFromDraft:', !loadedFromDraft);
-              console.log('  Should render:', platform === 'ebay' && !loadedFromDraft);
-              console.log('  result.ebay_category_suggestions:', result?.ebay_category_suggestions);
-              console.log('  result.suggested_category_id:', result?.suggested_category_id);
-              return null;
-            })()}
-            {platform === 'ebay' && !loadedFromDraft && (
+            {/* eBay Category & Aspects Section - only for eBay platform */}
+            {platform === 'ebay' && (
               <div>
                 <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-6">
                   eBay Category & Item Specifics
@@ -668,8 +692,8 @@ function UploadPage() {
               </div>
             )}
 
-            {/* Pricing Research Section - only when NOT loaded from draft */}
-            {!loadedFromDraft && (
+            {/* Pricing Research Section */}
+            {(
               <div>
                 <h2 className="text-3xl font-bold bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent mb-6">
                   Pricing Research
@@ -685,7 +709,7 @@ function UploadPage() {
             {/* eBay Posting Section */}
             {platform === 'ebay' && (
               <>
-                {loadedFromDraft && (
+                {loadedFromDraft && (!result.image_urls || result.image_urls.length === 0) && (
                   <div className="mb-4 bg-yellow-50 border-2 border-yellow-200 rounded-xl p-4">
                     <div className="flex items-start gap-3">
                       <svg className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -705,6 +729,7 @@ function UploadPage() {
                   pricingData={selectedPrice ? { statistics: { suggested_price: selectedPrice } } as any : undefined}
                   analysisId={result.analysis_id}
                   imageFiles={loadedFromDraft ? [] : selectedFiles}
+                  imageUrls={loadedFromDraft ? (result.image_urls || []) : []}
                 />
               </>
             )}

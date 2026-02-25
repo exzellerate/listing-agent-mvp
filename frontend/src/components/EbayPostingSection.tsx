@@ -7,6 +7,7 @@ interface EbayPostingSectionProps {
   pricingData?: PricingData;
   analysisId?: number;
   imageFiles?: File[];
+  imageUrls?: string[];
 }
 
 interface EbayAuthStatus {
@@ -28,7 +29,7 @@ interface EbayListingStatus {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-export function EbayPostingSection({ result, pricingData, analysisId, imageFiles = [] }: EbayPostingSectionProps) {
+export function EbayPostingSection({ result, pricingData, analysisId, imageFiles = [], imageUrls: imageUrlsProp }: EbayPostingSectionProps) {
   const [authStatus, setAuthStatus] = useState<EbayAuthStatus | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [listingStatus, setListingStatus] = useState<EbayListingStatus | null>(null);
@@ -41,7 +42,7 @@ export function EbayPostingSection({ result, pricingData, analysisId, imageFiles
     checkAuthStatus();
   }, []);
 
-  // Convert image files to URLs
+  // Convert image files to URLs, or use provided image URLs as fallback
   useEffect(() => {
     if (imageFiles && imageFiles.length > 0) {
       const urls = imageFiles.map(file => URL.createObjectURL(file));
@@ -51,8 +52,10 @@ export function EbayPostingSection({ result, pricingData, analysisId, imageFiles
       return () => {
         urls.forEach(url => URL.revokeObjectURL(url));
       };
+    } else if (imageUrlsProp && imageUrlsProp.length > 0) {
+      setImageUrls(imageUrlsProp);
     }
-  }, [imageFiles]);
+  }, [imageFiles, imageUrlsProp]);
 
   const checkAuthStatus = async () => {
     try {

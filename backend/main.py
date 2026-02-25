@@ -2943,7 +2943,7 @@ async def get_draft(
     Raises:
         HTTPException: If draft not found or retrieval fails
     """
-    from database_models import DraftListing
+    from database_models import DraftListing, ProductAnalysis
 
     try:
         draft = db.query(DraftListing).filter(
@@ -2956,6 +2956,20 @@ async def get_draft(
                 status_code=404,
                 detail=f"Draft {draft_id} not found"
             )
+
+        # Enrich extra_data with ProductAnalysis fields if available
+        extra_data = dict(draft.extra_data) if draft.extra_data else {}
+        if draft.analysis_id:
+            analysis = db.query(ProductAnalysis).filter(ProductAnalysis.id == draft.analysis_id).first()
+            if analysis:
+                extra_data["_analysis"] = {
+                    "image_urls": analysis.image_urls or ([analysis.image_path] if analysis.image_path else []),
+                    "ebay_category": analysis.ebay_category,
+                    "ebay_aspects": analysis.ebay_aspects,
+                    "ebay_category_suggestions": analysis.ebay_category_suggestions,
+                    "suggested_category_id": analysis.suggested_category_id,
+                    "ai_confidence": analysis.ai_confidence,
+                }
 
         return DraftListingResponse(
             id=draft.id,
@@ -2975,7 +2989,7 @@ async def get_draft(
             features=draft.features,
             keywords=draft.keywords,
             image_paths=draft.image_paths,
-            extra_data=draft.extra_data,
+            extra_data=extra_data,
             notes=draft.notes,
             created_at=draft.created_at,
             updated_at=draft.updated_at
