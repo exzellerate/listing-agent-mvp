@@ -141,6 +141,8 @@ export interface AnalysisResult {
   reasoning: string | null;
   // Learning system field
   analysis_id?: number;
+  // Server-hosted image URLs from analysis
+  image_urls?: string[];
   // eBay category recommendations
   ebay_category_suggestions?: CategoryRecommendation[];
   // eBay category and aspects (new integrated workflow)
@@ -312,6 +314,8 @@ export interface DraftListingSummary {
   platform: Platform;
   product_name: string | null;
   brand: string | null;
+  condition: string | null;
+  category: string | null;
   image_paths: string[] | null;
   created_at: string;
   updated_at: string;

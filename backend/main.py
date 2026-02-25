@@ -603,9 +603,10 @@ async def analyze_image(
         if local_urls:
             logger.info(f"Stored {len(local_urls)} local image URLs for analysis {analysis.id}")
 
-        # Add analysis_id to the response (we'll need to update the model for this)
+        # Add analysis_id and image URLs to the response
         result_dict = result.dict()
         result_dict['analysis_id'] = analysis.id
+        result_dict['image_urls'] = all_image_urls
 
         # Log comprehensive analysis result including eBay data
         logger.info(f"[{request_id}] ═══════════════════ COMPLETE ANALYSIS RESULT ═══════════════════")
@@ -2861,7 +2862,7 @@ async def list_drafts(
     Raises:
         HTTPException: If listing fails
     """
-    from database_models import DraftListing
+    from database_models import DraftListing, ProductAnalysis
 
     try:
         user_id = get_user_id_from_request(request, user)
@@ -2872,6 +2873,26 @@ async def list_drafts(
 
         drafts = query.order_by(DraftListing.updated_at.desc()).all()
 
+        def get_thumbnail_paths(draft):
+            """Get image URLs, filtering out base64 and backfilling from analysis."""
+            paths = draft.image_paths
+            if paths:
+                # Only keep URL paths, skip huge base64 data URIs
+                filtered = [p for p in paths if not p.startswith("data:")]
+                if filtered:
+                    return filtered
+            # Backfill from linked analysis if draft has no usable image paths
+            if draft.analysis_id:
+                analysis = db.query(ProductAnalysis).filter(
+                    ProductAnalysis.id == draft.analysis_id
+                ).first()
+                if analysis:
+                    if analysis.image_urls:
+                        return analysis.image_urls if isinstance(analysis.image_urls, list) else [analysis.image_urls]
+                    elif analysis.image_path:
+                        return [analysis.image_path]
+            return None
+
         return [
             DraftListingSummary(
                 id=draft.id,
@@ -2880,7 +2901,9 @@ async def list_drafts(
                 platform=draft.platform,
                 product_name=draft.product_name,
                 brand=draft.brand,
-                image_paths=draft.image_paths,
+                condition=draft.condition,
+                category=draft.category,
+                image_paths=get_thumbnail_paths(draft),
                 created_at=draft.created_at,
                 updated_at=draft.updated_at
             )

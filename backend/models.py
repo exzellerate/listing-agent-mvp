@@ -273,6 +273,8 @@ class DraftListingSummary(BaseModel):
     platform: str = Field(..., description="Target platform")
     product_name: Optional[str] = Field(None, description="Product name")
     brand: Optional[str] = Field(None, description="Brand")
+    condition: Optional[str] = Field(None, description="Item condition")
+    category: Optional[str] = Field(None, description="Category")
     image_paths: Optional[List[str]] = Field(None, description="Product image paths")
     created_at: datetime = Field(..., description="When draft was created")
     updated_at: datetime = Field(..., description="Last update time")

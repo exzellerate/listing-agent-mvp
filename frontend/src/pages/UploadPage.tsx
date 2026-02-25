@@ -121,7 +121,7 @@ function UploadPage() {
           setLoadedFromDraft(true);
 
           // Clear the URL parameter
-          window.history.replaceState({}, '', '/');
+          window.history.replaceState({}, '', '/upload');
         } catch (err) {
           console.error('Failed to load draft:', err);
           setError({
@@ -304,23 +304,14 @@ function UploadPage() {
 
     setSavingDraft(true);
     try {
-      // Convert File objects to base64 data URLs
-      const imagePaths = await Promise.all(
-        selectedFiles.map(file => {
-          return new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-          });
-        })
-      );
+      // Use server-hosted image URLs from analysis (not base64 data URIs)
+      const imagePaths = result.image_urls || [];
 
       await createDraft({
         analysis_id: result.analysis_id,
         title: result.suggested_title,
         description: result.suggested_description,
-        price: selectedPrice,
+        price: selectedPrice || undefined,
         platform: platform,
         product_name: result.product_name,
         brand: result.brand ?? undefined,
