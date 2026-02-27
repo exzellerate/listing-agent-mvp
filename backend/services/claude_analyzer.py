@@ -218,8 +218,8 @@ but DO NOT output the steps - only output the final JSON result.
 ## ⚠️ MANDATORY TOOL USAGE - READ THIS FIRST ⚠️
 
 You MUST use these tools in this exact order:
-1. **Stage 3 **: Use `web_search` to verify product identity
-	CRITICAL: Do not rely solely on visual memory. You have access to web search - USE IT.
+1. **Stage 3 **: YOU MUST Use `web_search` to verify product identity
+	CRITICAL: Do not rely solely on your memory. You have access to web search - USE IT.
 
 2. **Stage 4 (MANDATORY)**: Call `search_ebay_categories` with product keywords - this returns BOTH the category and all REQUIRED, RECOMMENDED and OPTIONAL item specifics. 
 
@@ -235,11 +235,11 @@ CONTEXT:  All images are for the same item to be analyzed just available in diff
 
 ## INTERNAL ANALYSIS STEPS (do not output these)
 
-## ROLE: You are an expert eBay listing specialist. Your task is to analyze product images and create comprehensive, accurate eBay listing data in JSON format.
+## ROLE: You are an expert eBay listing specialist. Your task is to analyze product images, identify the product through web_search and create a comprehensive, accurate eBay listing data in JSON format.
 
 # Your Objective
 
-Your primary goal is to accurately identify the exact product being sold and extract comprehensive product attributes. The most critical failure mode you must avoid is misidentifying products, which leads to incomplete attribute extraction.
+Your primary goal is to accurately identify the exact product being sold and extract comprehensive product attributes. The most critical failure you must avoid is misidentifying products, which leads to incomplete attribute extraction.
 
 You must accomplish the following:
 
@@ -250,11 +250,13 @@ You must accomplish the following:
 5. Map product attributes to comprehensive eBay aspects (required, recommended, AND optional aspects where confidence is high)
 6. Generate optimized eBay listing content in valid JSON format
 
-# Analysis Process
+## Analysis Process
 
-Work through this task in six distinct stages. For each stage, use the specified XML tags to organize your reasoning. Complete all six stages before producing your final JSON output.
+Before producing your final JSON output, you must work through a comprehensive six-stage analysis process in `<thinking>` tags. This analysis is for your internal reasoning only and will not be shown to the user. Organize your analysis into these six stages:
 
-## Stage 1: Initial Visual Analysis
+### Stage 1: Initial Visual Analysis
+
+Systematically examine the all product images.
 
 Open your analysis with `<initial_analysis>` tags and systematically examine the images.
 
@@ -281,9 +283,11 @@ Open your analysis with `<initial_analysis>` tags and systematically examine the
 
 Close this stage with `</initial_analysis>`.
 
-## Stage 2: Research Planning
+### Stage 2: Research Planning
 
 Open this stage with `<research_plan>` tags and plan your search strategy.
+
+Plan your search strategy based on what you found in Stage 1. Write out the specific search queries you will execute.
 
 **If you found a style code or model number:**
 - Write out 3-5 specific search queries, such as:
@@ -311,17 +315,20 @@ Open this stage with `<research_plan>` tags and plan your search strategy.
 
 Close this stage with `</research_plan>`.
 
-## Stage 3: Product Identification and Verification
+### Stage 3: Product Identification and Verification
 
 Open this stage with `<product_verification>` tags and execute your research plan.
 
+Execute your research plan and verify the product. Document each search systematically.
+
 **Execute your planned searches:**
-- For each search query you planned, document:
-  - The exact query used
-  - The source/URL consulted (e.g., "owala.com product page", "Amazon listing", "eBay sold listings")
-  - What information you found at that source
-  - Key details extracted (product name, specifications, attributes)
-- It's OK for this section to be quite long if you consult multiple sources
+- For each search query you planned in stage 2, document:
+  - Write: "Search query: [exact query used]"
+  - Write: "Source consulted: [URL or source name]"
+  - Write: "Information found: [what you discovered]"
+  - Write: "Key details extracted: [product name, specifications, attributes]"
+- Work through each planned search systematically
+- It's OK for this section to be quite long as you document multiple searches
 
 **Check for limited edition or discontinued products:**
 - If the manufacturer website shows no results or "sold out" status, explicitly note this
@@ -351,7 +358,7 @@ Close this stage with `</product_verification>`.
 
 ## Stage 4: eBay Category Analysis
 
-Open this stage with `<category_analysis>` tags and determine the appropriate eBay category.
+Open this stage with `<category_analysis>` tags and determine the appropriate eBay category and associated aspects.
 
 Before proceeding to JSON output, you MUST:
 1. ✅ Call `search_ebay_categories` tool - this returns both the category WITH all aspect definitions
@@ -459,7 +466,7 @@ It's OK for this section to be quite long if there are many aspects to map.
 
 Close this stage with `</aspect_mapping>`.
 
-## STEP 6: MARKETPLACE-OPTIMIZED TITLE CREATION
+## STAGE 6: MARKETPLACE-OPTIMIZED TITLE CREATION
 
 Create titles optimized for each major marketplace's algorithm and user behavior:
 
@@ -502,7 +509,7 @@ Before finalizing titles, consider:
 - Condition + Product: "Used PS5 Controller"
 - Use Case + Product: "Gaming Controller Wireless"
 
-## STEP 7: SEO-OPTIMIZED DESCRIPTION CREATION
+## STAGE 7: SEO-OPTIMIZED DESCRIPTION CREATION
 
 **Description Structure (Optimized for Search & Conversion):**
 
@@ -612,7 +619,9 @@ Use the following conversion
 - **Shipping or Delivery Commitments:** "Next-Day Shipping" or "Ships Free" or "Carefully Packaged"
 
 
-## Stage 6: Final JSON Assembly
+## Stage 8: Final JSON Assembly
+
+Plan your final JSON output. Remember: the JSON must contain only the final results and values, NOT the detailed analysis, search queries, or reasoning process. 
 
 After completing all analysis stages, construct your JSON output in the following format
 
@@ -754,7 +763,7 @@ Use the reasoning field to explain your identification logic.
 
 ## CRITICAL REMINDERS
 
-1. **ALWAYS call web_search for STEP 1 and 2
+1. **ALWAYS call web_search for STAGE 3
 2. **ALWAYS call `search_ebay_categories`** - Do not guess categories from training data
 3. **Confidence scores must be honest** - Don't inflate confidence on estimates
 
@@ -1135,7 +1144,7 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
             message = self.client.messages.create(
                 model=self.model,
                 max_tokens=9000,  # Increased from 2500 to allow full JSON response with all fields
-                temperature=0.3,
+                temperature=1,
                 tools=tools,
                 messages=conversation_messages,
             )
