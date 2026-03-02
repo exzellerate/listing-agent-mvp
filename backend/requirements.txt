@@ -12,6 +12,9 @@ httpx<0.28
 PyJWT==2.8.0
 cryptography==42.0.0
 
+# Production server
+gunicorn==21.2.0
+
 # Testing dependencies
 rapidfuzz==3.6.1
 pandas==2.2.0

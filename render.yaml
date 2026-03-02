@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: exzellerate
+    runtime: python
+    buildCommand: bash build.sh
+    startCommand: cd backend && gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 600
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: NODE_VERSION
+        value: "20"
+      - key: ENV
+        value: production
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_ISSUER
+        sync: false
+      - key: EBAY_CLIENT_ID
+        sync: false
+      - key: EBAY_CLIENT_SECRET
+        sync: false
+      - key: EBAY_REDIRECT_URI
+        sync: false
+      - key: EBAY_RU_NAME
+        sync: false
+      - key: VITE_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: VITE_API_URL
+        sync: false
+      - key: API_BASE_URL
+        sync: false

@@ -47,6 +47,9 @@ dist-ssr/
 *~
 .DS_Store
 
+# Build artifacts
+backend/static/
+
 # Environment variables
 .env
 .env.local

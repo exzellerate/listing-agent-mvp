@@ -41,6 +41,9 @@ logger = logging.getLogger(__name__)
 UPLOADS_DIR = Path(__file__).parent / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
 
+# Frontend static files directory (populated by build.sh)
+STATIC_DIR = Path(__file__).parent / "static"
+
 # Get base URL from environment
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
@@ -62,12 +65,18 @@ app.add_middleware(
         "https://exzellerate.com",  # Production domain
         "https://www.exzellerate.com",  # Production domain with www
         "http://exzellerate.com",  # Allow HTTP for redirect
-        "http://www.exzellerate.com"  # Allow HTTP for redirect
+        "http://www.exzellerate.com",  # Allow HTTP for redirect
+        "https://exzellerate.onrender.com",  # Render pre-prod
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Mount frontend static assets (JS, CSS from Vite build)
+if STATIC_DIR.exists() and (STATIC_DIR / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="static-assets")
 
 
 # Startup event to initialize database
@@ -81,7 +90,10 @@ async def startup_event():
 
 @app.get("/")
 async def root():
-    """Root endpoint - API health check."""
+    """Root endpoint - serves frontend or API health check."""
+    index = STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(index)
     return {
         "message": "Listing Agent API",
         "status": "running",
@@ -3664,6 +3676,18 @@ async def performance_dashboard():
         return FileResponse(dashboard_path)
     else:
         raise HTTPException(status_code=404, detail="Performance dashboard not found")
+
+
+# SPA catch-all: serve index.html for any unmatched GET route (React Router)
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """Serve frontend for client-side routes."""
+    if full_path.startswith("api/") or full_path.startswith("uploads/"):
+        raise HTTPException(status_code=404)
+    index = STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    raise HTTPException(status_code=404, detail="Frontend not built")
 
 
 if __name__ == "__main__":
