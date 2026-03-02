@@ -19,6 +19,7 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
   const [images, setImages] = useState<ImageFile[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [context, setContext] = useState(userContext);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // DEBUG: Log whether onContextChange prop is provided on mount
@@ -43,22 +44,25 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
 
     // Check if adding these files would exceed the limit
     if (currentCount + filesArray.length > maxImages) {
-      alert(`Maximum ${maxImages} images allowed. You currently have ${currentCount} image(s).`);
+      setValidationError(`Maximum ${maxImages} images allowed. You currently have ${currentCount}.`);
       return;
     }
 
     const validFiles: ImageFile[] = [];
+    let hadError = false;
 
     for (const file of filesArray) {
       // Validate file type
       if (!allowedTypes.includes(file.type)) {
-        alert(`Invalid file type: ${file.type}\n\nPlease select an image file:\n• JPEG (.jpg, .jpeg)\n• PNG (.png)\n• WebP (.webp)\n• GIF (.gif)`);
+        setValidationError(`"${file.name}" is not a supported format. Use JPG, PNG, WebP, or GIF.`);
+        hadError = true;
         continue;
       }
 
       // Validate file size
       if (file.size > maxSize) {
-        alert(`File ${file.name} size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds the 10MB limit.`);
+        setValidationError(`"${file.name}" (${(file.size / 1024 / 1024).toFixed(1)}MB) exceeds the 10MB limit.`);
+        hadError = true;
         continue;
       }
 
@@ -75,10 +79,11 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
           const updatedImages = [...images, ...validFiles];
           setImages(updatedImages);
           onImagesSelect(updatedImages.map(img => img.file));
+          if (!hadError) setValidationError(null);
         }
       };
       reader.onerror = () => {
-        alert(`Failed to read ${file.name}. Please try again.`);
+        setValidationError(`Failed to read "${file.name}". Please try again.`);
       };
       reader.readAsDataURL(file);
     }
@@ -233,6 +238,21 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Inline Validation Error */}
+      {validationError && (
+        <div className="mt-3 flex items-center gap-2 text-red-600 text-sm">
+          <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+          </svg>
+          <span>{validationError}</span>
+          <button onClick={() => setValidationError(null)} className="ml-auto text-red-400 hover:text-red-600">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
         </div>
       )}
 

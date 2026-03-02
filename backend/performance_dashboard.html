@@ -806,6 +806,14 @@
                             </details>
                         ` : ''}
                     </div>
+
+                    <div style="margin-top: 16px;">
+                        <a href="/api/debug/errors/${requestId}/raw" target="_blank"
+                           style="display: inline-block; padding: 8px 16px; background: #3b82f6; color: white; border-radius: 6px; text-decoration: none; font-size: 13px;"
+                           onclick="fetch('/api/debug/errors/${requestId}/raw').then(r => { if (!r.ok) { event.preventDefault(); alert('No saved raw response for this request (pre-dates this feature).'); } })">
+                            View Raw Response
+                        </a>
+                    </div>
                 </div>
 
                 ${status.context ? `
@@ -933,6 +941,30 @@
                             <p style="font-size: 14px; line-height: 1.6;">${result.reasoning}</p>
                         </div>
                     ` : ''}
+
+                    <div class="section" style="border-top: 1px solid #374151; padding-top: 16px; margin-top: 16px;">
+                        <details>
+                            <summary style="cursor: pointer; font-weight: 600; color: #9ca3af; font-size: 14px;">Debug Info</summary>
+                            <div style="margin-top: 12px;">
+                                <div class="info-grid">
+                                    <div class="info-item">
+                                        <div class="info-label">Extraction Strategy</div>
+                                        <div class="info-value">${log.extraction_strategy || 'N/A'}</div>
+                                    </div>
+                                    <div class="info-item">
+                                        <div class="info-label">Raw Response Length</div>
+                                        <div class="info-value">${log.raw_response_length ? log.raw_response_length.toLocaleString() + ' chars' : 'N/A'}</div>
+                                    </div>
+                                </div>
+                                ${log.raw_response ? `
+                                    <details style="margin-top: 12px;">
+                                        <summary style="cursor: pointer; color: #6b7280; font-size: 13px;">Raw Claude Response (click to expand)</summary>
+                                        <pre style="margin-top: 8px; padding: 12px; background: #0d1117; border-radius: 6px; font-size: 12px; max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all; color: #c9d1d9;">${escapeHtml(typeof log.raw_response === 'string' ? log.raw_response.substring(0, 2000) + (log.raw_response.length > 2000 ? '\\n\\n... truncated (' + log.raw_response.length + ' chars total)' : '') : JSON.stringify(log.raw_response).substring(0, 2000))}</pre>
+                                    </details>
+                                ` : ''}
+                            </div>
+                        </details>
+                    </div>
                 `;
             }).join('');
         }

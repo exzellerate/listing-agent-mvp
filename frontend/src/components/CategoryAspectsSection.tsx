@@ -479,8 +479,36 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
 
       {/* Error State */}
       {aspectsError && selectedCategoryId && (
-        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6 text-center">
-          <p className="text-red-800 font-medium">{aspectsError}</p>
+        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+            <div className="flex-1">
+              <p className="text-red-800 font-medium">Couldn't load item specifics for this category.</p>
+              <p className="text-red-600 text-sm mt-1">{aspectsError}</p>
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setAspectsError(null);
+                    // Re-trigger the useEffect by toggling
+                    const catId = selectedCategoryId;
+                    setSelectedCategoryId(null);
+                    setTimeout(() => setSelectedCategoryId(catId), 0);
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  Retry
+                </button>
+                <button
+                  onClick={() => setAspectsError(null)}
+                  className="text-sm text-gray-600 hover:text-gray-800 underline"
+                >
+                  Continue without item specifics
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

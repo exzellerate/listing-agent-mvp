@@ -13,6 +13,7 @@ import EbayCallback from './pages/EbayCallback.tsx'
 import ConnectionsPage from './pages/ConnectionsPage.tsx'
 import DraftsPage from './pages/DraftsPage.tsx'
 import FeedbackPage from './pages/FeedbackPage.tsx'
+import HelpPage from './pages/HelpPage.tsx'
 import LandingPage from './pages/LandingPage.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AuthProvider from './components/AuthProvider.tsx'
@@ -32,6 +33,7 @@ createRoot(document.getElementById('root')!).render(
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
+            <Route path="/help" element={<HelpPage />} />
             <Route path="/sign-in/*" element={<SignIn routing="path" path="/sign-in" fallbackRedirectUrl="/upload" />} />
             <Route path="/sign-up/*" element={<SignUp routing="path" path="/sign-up" fallbackRedirectUrl="/upload" />} />
 

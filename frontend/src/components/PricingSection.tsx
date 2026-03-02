@@ -110,12 +110,20 @@ export default function PricingSection({ analysis, platform, onPriceSelected }: 
           <div className="flex-1">
             <h3 className="font-bold text-red-900">Pricing Research Failed</h3>
             <p className="text-red-700 mt-1">{error}</p>
-            <button
-              onClick={handleResearch}
-              className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
-            >
-              Try Again
-            </button>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                onClick={handleResearch}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Try Again
+              </button>
+              <button
+                onClick={() => setError(null)}
+                className="text-sm text-gray-600 hover:text-gray-800 underline"
+              >
+                Skip pricing
+              </button>
+            </div>
           </div>
         </div>
       </div>
