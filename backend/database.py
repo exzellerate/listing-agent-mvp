@@ -38,8 +38,9 @@ def init_db():
     Initialize the database by creating all tables.
 
     This should be called once when the application starts.
+    Uses checkfirst=True to avoid errors if tables already exist.
     """
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=engine, checkfirst=True)
     print("✓ Database initialized successfully")
 
 

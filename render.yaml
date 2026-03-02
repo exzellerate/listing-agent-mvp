@@ -3,7 +3,7 @@ services:
     name: exzellerate
     runtime: python
     buildCommand: bash build.sh
-    startCommand: cd backend && gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 600
+    startCommand: cd backend && gunicorn main:app -w 1 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 600
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.7"
