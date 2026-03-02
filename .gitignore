@@ -59,7 +59,9 @@ backend/data/categories/
 backend/uploads/
 backend/logs/
 backend/test_data/
+backend/test_images/
 backend/activity*
+backend/test_data.numbers
 
 # Screenshots
 Landingpage*.png
