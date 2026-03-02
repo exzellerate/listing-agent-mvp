@@ -1,4 +1,3 @@
-import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ClerkProvider, SignIn, SignUp, UserProfile } from '@clerk/clerk-react'
@@ -15,6 +14,7 @@ import DraftsPage from './pages/DraftsPage.tsx'
 import FeedbackPage from './pages/FeedbackPage.tsx'
 import HelpPage from './pages/HelpPage.tsx'
 import LandingPage from './pages/LandingPage.tsx'
+import TermsPage from './pages/TermsPage.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AuthProvider from './components/AuthProvider.tsx'
 
@@ -26,34 +26,33 @@ if (!CLERK_PUBLISHABLE_KEY) {
 }
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
-      <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/help" element={<HelpPage />} />
-            <Route path="/sign-in/*" element={<SignIn routing="path" path="/sign-in" fallbackRedirectUrl="/upload" />} />
-            <Route path="/sign-up/*" element={<SignUp routing="path" path="/sign-up" fallbackRedirectUrl="/upload" />} />
+  <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} signInForceRedirectUrl="/upload" signUpForceRedirectUrl="/upload">
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* Public routes */}
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/help" element={<HelpPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/sign-in/*" element={<div className="min-h-screen flex items-center justify-center"><SignIn routing="path" path="/sign-in" fallbackRedirectUrl="/upload" /></div>} />
+          <Route path="/sign-up/*" element={<div className="min-h-screen flex items-center justify-center"><SignUp routing="path" path="/sign-up" fallbackRedirectUrl="/upload" /></div>} />
 
-            {/* Protected routes - require authentication */}
-            <Route element={<ProtectedRoute />}>
-              <Route path="/upload" element={<UploadPage />} />
-              <Route path="/listings" element={<ListingsPage />} />
-              <Route path="/analytics" element={<AnalyticsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/testing" element={<TestingPage />} />
-              <Route path="/connections" element={<ConnectionsPage />} />
-              <Route path="/drafts" element={<DraftsPage />} />
-              <Route path="/feedback" element={<FeedbackPage />} />
-              <Route path="/profile/*" element={<UserProfile routing="path" path="/profile" />} />
-              <Route path="/ebay/callback" element={<EbayCallback />} />
-              <Route path="/old" element={<App />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
-      </AuthProvider>
-    </ClerkProvider>
-  </StrictMode>,
+          {/* Protected routes - require authentication */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="/upload" element={<UploadPage />} />
+            <Route path="/listings" element={<ListingsPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/testing" element={<TestingPage />} />
+            <Route path="/connections" element={<ConnectionsPage />} />
+            <Route path="/drafts" element={<DraftsPage />} />
+            <Route path="/feedback" element={<FeedbackPage />} />
+            <Route path="/profile/*" element={<UserProfile routing="path" path="/profile" />} />
+            <Route path="/ebay/callback" element={<EbayCallback />} />
+            <Route path="/old" element={<App />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
+  </ClerkProvider>,
 )
