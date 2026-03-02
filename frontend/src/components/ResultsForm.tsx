@@ -45,10 +45,6 @@ export default function ResultsForm({ result, price, onPriceChange }: ResultsFor
     }
   };
 
-  const removeFeature = (index: number) => {
-    setFeatures(features.filter((_, i) => i !== index));
-  };
-
   const handlePriceChange = (value: string) => {
     setPriceInput(value);
     const numPrice = parseFloat(value);
