@@ -1,5 +1,5 @@
 import { useAuth } from '@clerk/clerk-react';
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, Outlet } from 'react-router-dom';
 
 /**
  * ProtectedRoute component that wraps routes requiring authentication.
@@ -7,8 +7,6 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
  */
 export default function ProtectedRoute() {
   const { isLoaded, isSignedIn } = useAuth();
-  const location = useLocation();
-
   // Show loading state while Clerk is initializing
   if (!isLoaded) {
     return (

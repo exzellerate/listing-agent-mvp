@@ -14,8 +14,6 @@ export default function ResultsForm({ result, price, onPriceChange }: ResultsFor
   const [description, setDescription] = useState(result.suggested_description);
   const [category, setCategory] = useState(result.category || '');
   const [condition, setCondition] = useState(result.condition);
-  const [features, setFeatures] = useState<string[]>(result.key_features);
-  const [newFeature, setNewFeature] = useState('');
   const [priceInput, setPriceInput] = useState(price?.toFixed(2) || '');
   const [showReasoning, setShowReasoning] = useState(false);
   const [showDiscrepancies, setShowDiscrepancies] = useState(false);
@@ -28,7 +26,6 @@ export default function ResultsForm({ result, price, onPriceChange }: ResultsFor
     setDescription(result.suggested_description);
     setCategory(result.category || '');
     setCondition(result.condition);
-    setFeatures(result.key_features);
   }, [result]);
 
   // Update price input when price prop changes
@@ -37,13 +34,6 @@ export default function ResultsForm({ result, price, onPriceChange }: ResultsFor
       setPriceInput(price.toFixed(2));
     }
   }, [price]);
-
-  const addFeature = () => {
-    if (newFeature.trim()) {
-      setFeatures([...features, newFeature.trim()]);
-      setNewFeature('');
-    }
-  };
 
   const handlePriceChange = (value: string) => {
     setPriceInput(value);
