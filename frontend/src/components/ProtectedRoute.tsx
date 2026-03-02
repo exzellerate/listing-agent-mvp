@@ -21,10 +21,9 @@ export default function ProtectedRoute() {
     );
   }
 
-  // Redirect to sign-in if not authenticated
+  // Redirect to home if not authenticated
   if (!isSignedIn) {
-    // Save the attempted URL for redirecting after login
-    return <Navigate to="/sign-in" state={{ from: location }} replace />;
+    return <Navigate to="/" replace />;
   }
 
   // Render the protected content
