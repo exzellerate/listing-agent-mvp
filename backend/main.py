@@ -3486,6 +3486,42 @@ This feedback was submitted via the Listing Agent feedback form.
 
 
 # ====================================================================================
+# PUBLIC STATS ENDPOINT
+# ====================================================================================
+
+@app.get("/api/stats/public")
+async def get_public_stats(db: Session = Depends(get_db)):
+    """Return public platform stats (no auth required)."""
+    from database_models import EbayListing, ListingStatus
+
+    listings_count = db.query(EbayListing).filter(
+        EbayListing.status == ListingStatus.PUBLISHED
+    ).count()
+
+    seller_count = 0
+    clerk_secret = os.getenv("CLERK_SECRET_KEY", "")
+    if clerk_secret:
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://api.clerk.com/v1/users/count",
+                    headers={"Authorization": f"Bearer {clerk_secret}"},
+                    timeout=5.0,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    seller_count = data.get("total_count", 0)
+        except Exception:
+            logger.warning("Failed to fetch seller count from Clerk API")
+
+    return {
+        "listings_published": listings_count,
+        "active_sellers": seller_count,
+    }
+
+
+# ====================================================================================
 # PERFORMANCE LOGS ENDPOINT
 # ====================================================================================
 

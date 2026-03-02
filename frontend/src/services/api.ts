@@ -963,7 +963,7 @@ export async function analyzeCategoryAspects(
       method: 'POST',
       headers,
       body: JSON.stringify(request),
-      signal: AbortSignal.timeout(90000), // 90 second timeout for Claude analysis
+      signal: AbortSignal.timeout(90000), // 90 second timeout for analysis
     });
 
     if (!response.ok) {

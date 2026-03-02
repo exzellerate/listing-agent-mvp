@@ -63,7 +63,7 @@ export interface CategoryAspectResponse {
   aspect_analysis: CategoryAspectAnalysis;
 }
 
-// eBay Category types (from Claude analysis)
+// eBay Category types (from AI analysis)
 export interface EbayCategoryAlternative {
   category_id: string;
   category_name: string;
@@ -160,7 +160,7 @@ export interface AnalysisResult {
     additional_attributes?: Record<string, any>;
   };
   extracted_attributes?: Record<string, any>;
-  // eBay category and aspects from Claude analysis
+  // eBay category and aspects from AI analysis
   ebay_category_keywords?: string[];
   ebay_category?: EbayCategory;
   ebay_aspects?: Record<string, string | string[]>;

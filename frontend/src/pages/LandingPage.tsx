@@ -1,9 +1,20 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
-import { Zap, Upload, LayoutGrid, TrendingUp, ArrowRight, Star } from 'lucide-react';
+import { Zap, Upload, MousePointerClick, TrendingUp, ArrowRight, Package, Users, LayoutList, Award } from 'lucide-react';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export default function LandingPage() {
   const { isSignedIn } = useAuth();
+  const [stats, setStats] = useState<{ listings_published: number; active_sellers: number } | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/stats/public`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setStats(data); })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="min-h-screen bg-white">
@@ -53,12 +64,12 @@ export default function LandingPage() {
           </span>
         </h2>
         <p className="text-lg text-gray-600 mb-8 max-w-2xl mx-auto">
-          Upload a photo. Our AI creates optimized listings for eBay, Amazon, Etsy & more.
+          Upload a photo. Our AI creates optimized listings for eBay.
           It's that simple — the rest is magic.
         </p>
 
         {/* CTA Buttons */}
-        <div className="flex gap-4 justify-center mb-6">
+        <div className="flex gap-4 justify-center mb-8">
           <Link
             to={isSignedIn ? "/upload" : "/sign-up"}
             className="px-6 py-3 bg-green-500 text-white rounded-full hover:bg-green-600 transition font-medium flex items-center gap-2"
@@ -74,15 +85,26 @@ export default function LandingPage() {
           </a>
         </div>
 
-        {/* Social Proof */}
-        <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
-          <div className="flex">
-            {[...Array(5)].map((_, i) => (
-              <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-            ))}
+        {/* Real-time stats */}
+        {stats && (stats.listings_published > 0 || stats.active_sellers > 0) && (
+          <div className="flex justify-center gap-12 text-center">
+            {stats.listings_published > 0 && (
+              <div className="flex items-center gap-2">
+                <Package className="w-5 h-5 text-green-500" />
+                <span className="text-2xl font-bold text-gray-900">{stats.listings_published.toLocaleString()}</span>
+                <span className="text-sm text-gray-500">listings published</span>
+              </div>
+            )}
+            {stats.active_sellers > 0 && (
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-purple-500" />
+                <span className="text-2xl font-bold text-gray-900">{stats.active_sellers.toLocaleString()}</span>
+                <span className="text-sm text-gray-500">active sellers</span>
+              </div>
+            )}
           </div>
-          <span>Join 15,000+ sellers making listings effortless</span>
-        </div>
+        )}
+
       </section>
 
       {/* AI-Powered Magic Card */}
@@ -94,20 +116,20 @@ export default function LandingPage() {
               AI-Powered Magic
             </span>
             <h3 className="text-3xl md:text-4xl font-bold text-gray-900 mb-1">
-              One Photo.
+              Your Image.
             </h3>
             <h3 className="text-3xl md:text-4xl font-bold text-green-500 mb-4">
-              Unlimited Listings.
+              A Sales-Ready Listing.
             </h3>
             <p className="text-gray-600 mb-6">
-              Our advanced AI analyzes your product image and automatically generates:
+              Upload a simple photo and our AI turns it into a fully optimized marketplace listing:
             </p>
             <ul className="space-y-3">
               {[
-                'Compelling titles optimized for search',
-                'Detailed, accurate descriptions',
-                'Perfect category & tag suggestions',
-                'Multi-platform formatting (eBay, Amazon, Etsy)'
+                'SEO-optimized titles that rank higher in search',
+                'Detailed, compelling product descriptions',
+                'Smart category & item specifics selection',
+                'Ready to publish on eBay, Amazon & more'
               ].map((item, i) => (
                 <li key={i} className="flex items-center gap-3 text-gray-700">
                   <ArrowRight className="w-4 h-4 text-green-500 flex-shrink-0" />
@@ -117,32 +139,29 @@ export default function LandingPage() {
             </ul>
           </div>
 
-          {/* Right Content - Placeholder Mockup */}
-          <div className="flex-1 relative">
+          {/* Right Content - Sample Product */}
+          <div className="flex-1">
             <div className="bg-gradient-to-br from-purple-100 via-blue-100 to-green-100 rounded-2xl p-8 aspect-[4/3] flex items-center justify-center">
               <div className="bg-white rounded-xl shadow-lg p-4 w-full max-w-xs">
-                <div className="bg-gray-200 rounded-lg aspect-square mb-3 flex items-center justify-center">
-                  <span className="text-gray-400 text-sm">Product Image</span>
-                </div>
+                <img
+                  src="/sample-product.jpg"
+                  alt="Sample product"
+                  className="rounded-lg aspect-square mb-3 object-cover w-full"
+                />
                 <div className="h-3 bg-gray-200 rounded mb-2 w-3/4"></div>
                 <div className="h-2 bg-gray-100 rounded mb-1 w-full"></div>
                 <div className="h-2 bg-gray-100 rounded w-2/3"></div>
               </div>
             </div>
-            {/* Listed Badge */}
-            <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg px-4 py-2">
-              <span className="text-xs text-gray-500">Listed in</span>
-              <div className="text-xl font-bold text-green-500">2.3 sec</div>
-            </div>
           </div>
         </div>
       </section>
 
-      {/* Why Sellers Love Section */}
+      {/* Why exzellerate Section */}
       <section className="max-w-7xl mx-auto px-6 py-16">
         <div className="text-center mb-12">
           <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
-            Why sellers love{' '}
+            Why{' '}
             <span className="bg-gradient-to-r from-purple-500 to-green-500 bg-clip-text text-transparent">
               exzellerate
             </span>
@@ -150,37 +169,48 @@ export default function LandingPage() {
           <p className="text-gray-600">Less time listing. More time selling.</p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
-          {/* Lightning Fast */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+          {/* Dead Simple */}
           <div className="text-center md:text-left">
             <div className="w-14 h-14 bg-purple-100 rounded-xl flex items-center justify-center mb-4 mx-auto md:mx-0">
-              <Zap className="w-7 h-7 text-purple-600" />
+              <MousePointerClick className="w-7 h-7 text-purple-600" />
             </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Lightning Fast</h3>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Dead Simple</h3>
             <p className="text-gray-600">
-              List products in seconds, not hours. Our AI works while you focus on growing your business.
-            </p>
-          </div>
-
-          {/* Multi-Platform Ready */}
-          <div className="text-center md:text-left">
-            <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center mb-4 mx-auto md:mx-0">
-              <LayoutGrid className="w-7 h-7 text-green-600" />
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Multi-Platform Ready</h3>
-            <p className="text-gray-600">
-              One upload creates perfectly formatted listings for all major marketplaces automatically.
+              Upload a photo, review the listing, and publish. That's it — no learning curve, no complexity.
             </p>
           </div>
 
           {/* Optimized for Sales */}
           <div className="text-center md:text-left">
-            <div className="w-14 h-14 bg-teal-100 rounded-xl flex items-center justify-center mb-4 mx-auto md:mx-0">
-              <TrendingUp className="w-7 h-7 text-teal-600" />
+            <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center mb-4 mx-auto md:mx-0">
+              <TrendingUp className="w-7 h-7 text-green-600" />
             </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Optimized for Sales</h3>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Optimized to Sell</h3>
             <p className="text-gray-600">
-              AI-generated titles and descriptions proven to increase visibility and conversion rates.
+              AI-generated titles and descriptions designed to increase visibility and drive conversions.
+            </p>
+          </div>
+
+          {/* Perfectly Formatted */}
+          <div className="text-center md:text-left">
+            <div className="w-14 h-14 bg-teal-100 rounded-xl flex items-center justify-center mb-4 mx-auto md:mx-0">
+              <LayoutList className="w-7 h-7 text-teal-600" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Perfectly Formatted</h3>
+            <p className="text-gray-600">
+              Every listing is structured and formatted exactly how marketplaces want it — ready to go live.
+            </p>
+          </div>
+
+          {/* Built by eBay Experts */}
+          <div className="text-center md:text-left">
+            <div className="w-14 h-14 bg-amber-100 rounded-xl flex items-center justify-center mb-4 mx-auto md:mx-0">
+              <Award className="w-7 h-7 text-amber-600" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Ex-eBay Team</h3>
+            <p className="text-gray-600">
+              Built by a former eBay team member who knows exactly what makes listings succeed on the platform.
             </p>
           </div>
         </div>
@@ -231,32 +261,6 @@ export default function LandingPage() {
           <p className="text-white/70 text-sm mt-4">
             No credit card required • Free forever plan
           </p>
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section className="max-w-7xl mx-auto px-6 py-20">
-        <div className="bg-gradient-to-r from-gray-50 to-green-50/30 rounded-3xl py-16">
-          <div className="grid md:grid-cols-3 gap-8 text-center">
-            <div>
-              <div className="text-5xl md:text-6xl font-bold bg-gradient-to-r from-purple-500 to-purple-600 bg-clip-text text-transparent mb-2">
-                15,000+
-              </div>
-              <p className="text-gray-600">Active Sellers</p>
-            </div>
-            <div>
-              <div className="text-5xl md:text-6xl font-bold bg-gradient-to-r from-teal-500 to-green-500 bg-clip-text text-transparent mb-2">
-                500K+
-              </div>
-              <p className="text-gray-600">Listings Created</p>
-            </div>
-            <div>
-              <div className="text-5xl md:text-6xl font-bold bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent mb-2">
-                98%
-              </div>
-              <p className="text-gray-600">Satisfaction Rate</p>
-            </div>
-          </div>
         </div>
       </section>
 

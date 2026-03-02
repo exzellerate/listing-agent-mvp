@@ -30,8 +30,8 @@ function UploadPage() {
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
   const [correctionAction] = useState<'edited' | 'rejected'>('edited');
   const [savingDraft, setSavingDraft] = useState(false);
+  const [draftSaveStatus, setDraftSaveStatus] = useState<'success' | 'error' | null>(null);
   const [loadedFromDraft, setLoadedFromDraft] = useState(false);
-  const [ebayEnvironment, setEbayEnvironment] = useState<{ mode: string; isProduction: boolean } | null>(null);
   const [showStartOverConfirmation, setShowStartOverConfirmation] = useState(false);
   const [analysisStage, setAnalysisStage] = useState<string | undefined>(undefined);
   const [analysisProgress, setAnalysisProgress] = useState<number | undefined>(undefined);
@@ -54,27 +54,7 @@ function UploadPage() {
     checkBackendHealth();
   }, []);
 
-  // Fetch eBay environment mode on mount
-  useEffect(() => {
-    const fetchEbayEnvironment = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/ebay/auth/status`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.environment) {
-            setEbayEnvironment({
-              mode: data.environment,
-              isProduction: data.is_production || false,
-            });
-          }
-        }
-      } catch (error) {
-        console.log('Could not fetch eBay environment:', error);
-        // Silently fail - environment indicator is optional
-      }
-    };
-    fetchEbayEnvironment();
-  }, []);
+
 
   // Load draft if draftId is provided in URL
   useEffect(() => {
@@ -332,10 +312,11 @@ function UploadPage() {
         image_paths: imagePaths,
       });
 
-      alert('Draft saved successfully! You can view it from the Drafts page.');
+      setDraftSaveStatus('success');
+      setTimeout(() => setDraftSaveStatus(null), 4000);
     } catch (err) {
       console.error('Failed to save draft:', err);
-      alert('Failed to save draft. Please try again.');
+      setDraftSaveStatus('error');
     } finally {
       setSavingDraft(false);
     }
@@ -346,17 +327,6 @@ function UploadPage() {
       title="Upload & Analyze"
       subtitle="Upload your product images and let AI generate optimized listings"
     >
-      {/* eBay Environment Indicator */}
-      {ebayEnvironment && (
-        <div className={`mb-6 inline-block px-3 py-1.5 rounded-lg font-bold text-xs border-2 ${
-          ebayEnvironment.isProduction
-            ? 'bg-red-50 border-red-500 text-red-700 animate-pulse'
-            : 'bg-yellow-50 border-yellow-500 text-yellow-700'
-        }`}>
-          {ebayEnvironment.isProduction ? '🔴 PRODUCTION' : '🟡 SANDBOX'}
-        </div>
-      )}
-
       <div className="space-y-8">
         {/* Image Upload - Only show when no results yet */}
         {!loadedFromDraft && !result && (
@@ -407,131 +377,56 @@ function UploadPage() {
         )}
 
         {/* Error Message */}
-        {error && (
-          <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6 shadow-lg animate-fadeIn">
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                  <svg
-                    className="h-6 w-6 text-red-600"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                      clipRule="evenodd"
-                    />
+        {error && (() => {
+          const errorInfo: Record<number, { title: string; body: string }> = {
+            0: { title: "Can't connect to server", body: "Make sure the backend is running and you have a stable internet connection." },
+            400: { title: "Invalid request", body: "Check that your images are valid files (JPG, PNG, WebP, or GIF) and try again." },
+            408: { title: "Analysis timed out", body: "Try uploading fewer images at once, or compress them to smaller file sizes." },
+            413: { title: "Image too large", body: "Please reduce the file size to under 10MB per image." },
+            429: { title: "Too many requests", body: "The AI service is rate-limited. Please wait a moment and try again." },
+            500: { title: "Couldn't analyze image", body: "The image may be unclear, too dark, or not showing a physical product. Try a clearer photo." },
+            502: { title: "Service error", body: "The AI service returned an error. Please try again." },
+            503: { title: "Service busy", body: "The service is temporarily overloaded. Please wait a moment and try again." },
+            504: { title: "Gateway timeout", body: "The request took too long. Try again — it often works on retry." },
+          };
+          const info = errorInfo[error.statusCode || -1] || { title: 'Something went wrong', body: error.message || 'An unexpected error occurred. Please try again.' };
+
+          return (
+            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-5 shadow-lg animate-fadeIn">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                  <svg className="h-5 w-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
                 </div>
-              </div>
-              <div className="flex-1">
-                <h3 className="font-bold text-lg text-red-900 mb-2">
-                  {error.statusCode === 0 && "I couldn't connect to the server"}
-                  {error.statusCode === 400 && "I couldn't process your request"}
-                  {error.statusCode === 408 && "This is taking too long"}
-                  {error.statusCode === 413 && "Your image file is too big"}
-                  {error.statusCode === 500 && "I couldn't understand this image"}
-                  {error.statusCode === 503 && "I'm temporarily unavailable"}
-                  {(!error.statusCode || (error.statusCode > 0 && ![0, 400, 408, 413, 500, 503].includes(error.statusCode))) && 'Something went wrong'}
-                </h3>
-                <p className="text-red-800">
-                  {error.statusCode === 0 && "I'm having trouble connecting to the backend server. Please make sure it's running and try again."}
-                  {error.statusCode === 400 && "There was a problem with the image or information you provided. Please check and try again."}
-                  {error.statusCode === 408 && "The analysis is taking longer than expected. This usually happens with large files or multiple images."}
-                  {error.statusCode === 413 && "The image you uploaded is larger than 10MB. Please use a smaller image file."}
-                  {error.statusCode === 500 && "I couldn't analyze this product image. It might be unclear, too dark, or not showing a physical product."}
-                  {error.statusCode === 503 && "The service is temporarily busy or under maintenance. Please wait a moment and try again."}
-                  {(!error.statusCode || (error.statusCode > 0 && ![0, 400, 408, 413, 500, 503].includes(error.statusCode))) && (error.message || "An unexpected error occurred. Please try again.")}
-                </p>
-
-                {/* Helpful suggestions based on error type */}
-                {error.statusCode === 500 && (
-                  <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <p className="text-sm text-yellow-800 font-medium mb-2">💡 What you can try:</p>
-                    <ul className="text-sm text-yellow-700 list-disc list-inside space-y-1">
-                      <li>Upload a clearer or different image of the product</li>
-                      <li>Make sure the product is clearly visible and well-lit</li>
-                      <li>Avoid blurry, dark, or low-quality photos</li>
-                      <li>Ensure the image shows a physical item (not just text, screenshots, or graphics)</li>
-                    </ul>
-                  </div>
-                )}
-
-                {error.statusCode === 408 && (
-                  <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <p className="text-sm text-yellow-800 font-medium mb-2">💡 What you can try:</p>
-                    <p className="text-sm text-yellow-700">The analysis took too long to complete. Try uploading fewer images at once or compress your images to smaller file sizes.</p>
-                  </div>
-                )}
-
-                {error.statusCode === 400 && (
-                  <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <p className="text-sm text-yellow-800 font-medium mb-2">💡 What you can try:</p>
-                    <p className="text-sm text-yellow-700">Make sure you've uploaded valid image files (JPG, PNG, WebP, or GIF) and selected a platform.</p>
-                  </div>
-                )}
-
-                {error.statusCode === 413 && (
-                  <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <p className="text-sm text-yellow-800 font-medium mb-2">💡 What you can try:</p>
-                    <p className="text-sm text-yellow-700">Your image file is too large. Please reduce the file size to under 10MB per image and try again.</p>
-                  </div>
-                )}
-
-                {error.statusCode === 503 && (
-                  <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <p className="text-sm text-yellow-800 font-medium mb-2">💡 What you can try:</p>
-                    <p className="text-sm text-yellow-700">The server is temporarily busy or under maintenance. Please wait a few moments and try again.</p>
-                  </div>
-                )}
-
-                {error.statusCode === 0 && (
-                  <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <p className="text-sm text-yellow-800 font-medium mb-2">💡 What you can try:</p>
-                    <p className="text-sm text-yellow-700">Make sure the backend server is running and you have a stable internet connection. Click "Retry Connection" below to try again.</p>
-                  </div>
-                )}
-
-                {/* Action buttons */}
-                <div className="mt-4 flex gap-2">
-                  {error.statusCode === 0 && (
-                    <button
-                      onClick={retryHealthCheck}
-                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors shadow-md"
-                    >
-                      Retry Connection
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg text-red-900">{info.title}</h3>
+                  <p className="text-red-800 text-sm mt-1">{info.body}</p>
+                  {error.details && <p className="text-red-600 text-xs mt-1">{error.details}</p>}
+                  <div className="mt-3 flex gap-2">
+                    {error.statusCode === 0 ? (
+                      <button onClick={retryHealthCheck} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors">
+                        Retry Connection
+                      </button>
+                    ) : selectedFiles.length > 0 && (
+                      <button onClick={handleAnalyze} disabled={loading} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        Try Again
+                      </button>
+                    )}
+                    <button onClick={handleReset} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors">
+                      Start Over
                     </button>
-                  )}
-                  {error.statusCode !== 0 && selectedFiles.length > 0 && (
-                    <button
-                      onClick={handleAnalyze}
-                      disabled={loading}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Try Again
-                    </button>
-                  )}
-                  <button
-                    onClick={handleReset}
-                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors shadow-md"
-                  >
-                    Start Over
-                  </button>
+                  </div>
                 </div>
+                <button onClick={() => setError(null)} className="flex-shrink-0 text-red-400 hover:text-red-600 transition-colors" aria-label="Dismiss error">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
               </div>
-              <button
-                onClick={() => setError(null)}
-                className="flex-shrink-0 text-red-400 hover:text-red-600 transition-colors"
-                aria-label="Dismiss error"
-              >
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </button>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Loading State */}
         {loading && (
@@ -667,6 +562,33 @@ function UploadPage() {
                     )}
                   </button>
                 </div>
+
+                {/* Draft Save Feedback */}
+                {draftSaveStatus && (
+                  <div className={`mt-3 px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
+                    draftSaveStatus === 'success'
+                      ? 'bg-green-50 border border-green-200 text-green-800'
+                      : 'bg-red-50 border border-red-200 text-red-800'
+                  }`}>
+                    <span>
+                      {draftSaveStatus === 'success'
+                        ? 'Draft saved! View it from the Drafts page.'
+                        : 'Failed to save draft.'}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {draftSaveStatus === 'error' && (
+                        <button onClick={handleSaveAsDraft} className="text-red-600 hover:text-red-800 font-semibold underline">
+                          Retry
+                        </button>
+                      )}
+                      <button onClick={() => setDraftSaveStatus(null)} className="text-gray-400 hover:text-gray-600">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 

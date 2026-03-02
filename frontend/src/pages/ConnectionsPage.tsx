@@ -143,7 +143,7 @@ export default function ConnectionsPage() {
               href="/"
               className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-colors"
             >
-              ← Back to Listing Agent
+              ← Back to exzellerate
             </a>
           </div>
         </div>
@@ -153,7 +153,7 @@ export default function ConnectionsPage() {
       <main className="max-w-5xl mx-auto px-4 py-8">
         <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-200 p-8">
           <div className="space-y-6">
-            {connections.map((connection) => (
+            {connections.filter(c => c.platform === 'ebay').map((connection) => (
               <div
                 key={connection.platform}
                 className="border-2 border-gray-200 rounded-xl p-6 hover:border-gray-300 transition-all duration-300 hover:shadow-lg"
@@ -227,7 +227,7 @@ export default function ConnectionsPage() {
                 {connection.platform === 'ebay' && (
                   <div className="mt-4 pt-4 border-t border-gray-200">
                     <p className="text-sm text-gray-600">
-                      Connect your eBay account to create and manage listings directly from the Listing Agent.
+                      Connect your eBay account to create and manage listings directly from exzellerate.
                     </p>
                   </div>
                 )}
@@ -265,7 +265,7 @@ export default function ConnectionsPage() {
             <div>
               <h4 className="font-bold text-blue-900 mb-2">About Platform Connections</h4>
               <p className="text-sm text-blue-800">
-                Connecting your marketplace accounts allows you to create listings directly from the Listing Agent.
+                Connecting your marketplace accounts allows you to create listings directly from exzellerate.
                 Your credentials are securely stored and you can disconnect at any time. Once connected, you can
                 analyze product images and post listings without needing to manually enter marketplace details.
               </p>

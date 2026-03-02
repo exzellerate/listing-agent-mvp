@@ -1,10 +1,13 @@
-import { Link, useLocation } from 'react-router-dom';
-import { Upload, FileText, CheckCircle, BarChart3, Settings, HelpCircle, Package, MessageSquare } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Upload, FileText, CheckCircle, BarChart3, Settings, HelpCircle, Zap, MessageSquare, LogOut } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useClerk } from '@clerk/clerk-react';
 import { listDrafts } from '../services/api';
 
 const Sidebar = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { signOut } = useClerk();
   const [draftCount, setDraftCount] = useState<number>(0);
 
   // Fetch draft count on mount and when location changes
@@ -48,6 +51,11 @@ const Sidebar = () => {
       path: '/feedback',
       icon: MessageSquare,
     },
+    {
+      name: 'Help',
+      path: '/help',
+      icon: HelpCircle,
+    },
   ];
 
   const isActive = (path: string) => {
@@ -58,15 +66,12 @@ const Sidebar = () => {
     <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-screen">
       {/* Logo and Brand */}
       <div className="px-6 py-6 border-b border-gray-200">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-black rounded-xl flex items-center justify-center">
-            <Package className="w-7 h-7 text-white" />
+        <Link to="/" className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-green-400 to-green-600 rounded-lg flex items-center justify-center">
+            <Zap className="w-6 h-6 text-white" />
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">ListingAI</h1>
-            <p className="text-sm text-gray-500">Multi-Platform</p>
-          </div>
-        </div>
+          <span className="text-xl font-bold text-gray-900">exzellerate</span>
+        </Link>
       </div>
 
       {/* Navigation Items */}
@@ -101,8 +106,8 @@ const Sidebar = () => {
         </div>
       </nav>
 
-      {/* Settings Section */}
-      <div className="px-4 py-6 border-t border-gray-200">
+      {/* Bottom Section */}
+      <div className="px-4 py-6 border-t border-gray-200 space-y-1">
         <Link
           to="/settings"
           className={`
@@ -116,15 +121,14 @@ const Sidebar = () => {
           <Settings className="w-5 h-5" />
           <span className="text-sm">Settings</span>
         </Link>
+        <button
+          onClick={() => signOut(() => navigate('/'))}
+          className="flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-gray-600 hover:bg-red-50 hover:text-red-600 w-full"
+        >
+          <LogOut className="w-5 h-5" />
+          <span className="text-sm">Sign Out</span>
+        </button>
       </div>
-
-      {/* Help Button */}
-      <button
-        className="absolute bottom-6 right-6 w-12 h-12 bg-black rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-shadow"
-        title="Help"
-      >
-        <HelpCircle className="w-6 h-6 text-white" />
-      </button>
     </div>
   );
 };

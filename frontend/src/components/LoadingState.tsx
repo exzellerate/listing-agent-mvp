@@ -10,7 +10,7 @@ interface LoadingStateProps {
 const STAGE_LABELS: Record<string, string> = {
   validating: 'Validating images...',
   encoding: 'Encoding images...',
-  analyzing: 'Analyzing with Claude AI...',
+  analyzing: 'Analyzing your images...',
   searching: 'Searching for product info...',
   tool_use: 'Researching product details...',
   retrying: 'Retrying connection...',
@@ -34,7 +34,7 @@ export default function LoadingState({ stage, stageMessage, progress, onCancel }
   };
 
   const hasProgress = stage !== undefined && progress !== undefined;
-  const displayMessage = stageMessage || STAGE_LABELS[stage || ''] || 'Analyzing image with Claude AI...';
+  const displayMessage = stageMessage || STAGE_LABELS[stage || ''] || 'Analyzing your images...';
 
   return (
     <div className="flex flex-col items-center justify-center py-16 animate-fadeIn">
@@ -78,7 +78,7 @@ export default function LoadingState({ stage, stageMessage, progress, onCancel }
       {onCancel && (
         <button
           onClick={onCancel}
-          className="mt-6 px-4 py-2 text-sm text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+          className="mt-6 text-sm text-gray-500 underline hover:text-red-600 transition-colors"
         >
           Cancel Analysis
         </button>

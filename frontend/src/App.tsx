@@ -34,7 +34,7 @@ function App() {
   const [correctionAction, setCorrectionAction] = useState<'edited' | 'rejected'>('edited');
   const [savingDraft, setSavingDraft] = useState(false);
   const [loadedFromDraft, setLoadedFromDraft] = useState(false);
-  const [ebayEnvironment, setEbayEnvironment] = useState<{ mode: string; isProduction: boolean } | null>(null);
+
 
   // Check backend health on mount
   useEffect(() => {
@@ -52,27 +52,6 @@ function App() {
     checkBackendHealth();
   }, []);
 
-  // Fetch eBay environment mode on mount
-  useEffect(() => {
-    const fetchEbayEnvironment = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/ebay/auth/status`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.environment) {
-            setEbayEnvironment({
-              mode: data.environment,
-              isProduction: data.is_production || false,
-            });
-          }
-        }
-      } catch (error) {
-        console.log('Could not fetch eBay environment:', error);
-        // Silently fail - environment indicator is optional
-      }
-    };
-    fetchEbayEnvironment();
-  }, []);
 
   // Load draft if draftId is provided in URL
   useEffect(() => {
@@ -350,23 +329,13 @@ function App() {
             <div className="flex-1">
               <div className="flex items-center gap-4">
                 <div>
-                  <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                    Listing Agent
+                  <h1 className="text-4xl font-bold bg-gradient-to-r from-green-500 to-green-600 bg-clip-text text-transparent">
+                    exzellerate
                   </h1>
                   <p className="mt-2 text-sm text-gray-600">
-                    AI-powered marketplace listing generator using Claude Vision
+                    AI-powered marketplace listing generator
                   </p>
                 </div>
-                {/* Global eBay Environment Indicator */}
-                {ebayEnvironment && (
-                  <div className={`px-3 py-1.5 rounded-lg font-bold text-xs border-2 ${
-                    ebayEnvironment.isProduction
-                      ? 'bg-red-50 border-red-500 text-red-700 animate-pulse'
-                      : 'bg-yellow-50 border-yellow-500 text-yellow-700'
-                  }`}>
-                    {ebayEnvironment.isProduction ? '🔴 PRODUCTION' : '🟡 SANDBOX'}
-                  </div>
-                )}
               </div>
             </div>
             <div className="flex gap-3">
@@ -752,7 +721,7 @@ function App() {
         {/* Footer Info */}
         <div className="mt-8 text-center text-sm text-gray-500">
           <p>
-            Powered by Claude AI Vision | Upload a product image to generate optimized marketplace listings
+            Upload a product image to generate optimized marketplace listings
           </p>
         </div>
       </main>

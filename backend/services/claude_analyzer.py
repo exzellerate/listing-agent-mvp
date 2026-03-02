@@ -1703,7 +1703,7 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
             ]
 
             if progress_callback:
-                progress_callback("analyzing", "Sending images to Claude AI for analysis...")
+                progress_callback("analyzing", "Analyzing your images...")
 
             # Call Claude API with vision and all available tools (with retry)
             message = await self._call_claude_with_retry_async(
@@ -1740,7 +1740,7 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
                 logger.info("=" * 80)
 
                 if progress_callback:
-                    progress_callback("tool_use", "Claude is researching product details...")
+                    progress_callback("tool_use", "Researching product details...")
 
                 # Extract tool use requests from message content
                 tool_uses = []
