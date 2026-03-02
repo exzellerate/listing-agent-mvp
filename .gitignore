@@ -50,8 +50,10 @@ dist-ssr/
 # Build artifacts
 backend/static/
 
-# Large cached data files
+# Large cached/generated data files
 backend/services/ebay/data/aspects/aspects_metadata.json
+backend/listing_agent.db
+backend/data/categories/
 
 # Environment variables
 .env
