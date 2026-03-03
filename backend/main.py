@@ -3678,12 +3678,18 @@ async def performance_dashboard():
         raise HTTPException(status_code=404, detail="Performance dashboard not found")
 
 
-# SPA catch-all: serve index.html for any unmatched GET route (React Router)
+# SPA catch-all: serve static files or index.html for client-side routes
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
-    """Serve frontend for client-side routes."""
+    """Serve static files from frontend build, or index.html for SPA routes."""
     if full_path.startswith("api/") or full_path.startswith("uploads/"):
         raise HTTPException(status_code=404)
+    # Check if it's a real static file (e.g. sample-product.jpg, favicon.ico)
+    if STATIC_DIR.exists():
+        static_file = STATIC_DIR / full_path
+        if static_file.is_file():
+            return FileResponse(static_file)
+    # Otherwise serve index.html for client-side routing
     index = STATIC_DIR / "index.html"
     if index.exists():
         return FileResponse(index)
