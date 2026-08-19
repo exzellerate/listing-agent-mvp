@@ -74,6 +74,9 @@ class ProductAnalysis(Base):
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True)
 
+    # User identification
+    user_id = Column(String(256), nullable=True, index=True, comment="Clerk user ID")
+
     # Image identification
     image_path = Column(String(512), nullable=True, comment="Primary image URL (first image)")
     image_urls = Column(JSON, nullable=True, comment="JSON array of all uploaded image URLs")
@@ -261,7 +264,7 @@ class EbayCredentials(Base):
     __tablename__ = "ebay_credentials"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(100), unique=True, default="default_user", comment="User identifier (for future multi-user support)")
+    user_id = Column(String(256), unique=True, nullable=False, index=True, comment="Clerk user ID")
 
     # OAuth tokens
     access_token = Column(Text, nullable=False, comment="Current OAuth access token")
@@ -405,8 +408,8 @@ class DraftListing(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     analysis_id = Column(Integer, nullable=True, index=True, comment="FK to product_analyses if created from analysis")
 
-    # User identification (for future multi-user support)
-    user_id = Column(String(100), nullable=False, default="default_user", index=True, comment="User who created the draft")
+    # User identification
+    user_id = Column(String(256), nullable=False, index=True, comment="Clerk user ID")
 
     # Listing data
     title = Column(Text, nullable=False, comment="Listing title")

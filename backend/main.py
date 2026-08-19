@@ -10,6 +10,9 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from models import (
     AnalysisResponse, ErrorResponse, Platform, PricingRequest, PricingResponse,
@@ -24,7 +27,7 @@ from services.claude_analyzer import get_analyzer
 from services.pricing_researcher import get_pricing_researcher
 from services.batch_tester import get_batch_tester
 from services.ebay.media import EbayMediaService
-from services.auth import get_current_user, ClerkUser, get_user_id_from_request
+from services.auth import get_current_user, require_auth, ClerkUser, get_user_id_from_request
 from database import init_db, get_db
 
 # Load environment variables
@@ -47,6 +50,26 @@ STATIC_DIR = Path(__file__).parent / "static"
 # Get base URL from environment
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
+# Cloudflare R2 / S3-compatible object storage config
+R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID", "")
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "")
+R2_PUBLIC_URL = os.getenv("R2_PUBLIC_URL", "")  # e.g. https://pub-xxx.r2.dev or custom domain
+
+def _get_r2_client():
+    """Return a boto3 S3 client configured for Cloudflare R2, or None if not configured."""
+    if not all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME]):
+        return None
+    import boto3
+    return boto3.client(
+        "s3",
+        endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+        aws_access_key_id=R2_ACCESS_KEY_ID,
+        aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+        region_name="auto",
+    )
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Listing Agent API",
@@ -54,19 +77,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Rate limiter (IP-based; all sensitive routes also require auth)
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:3000",
-        "https://listing-agent-ebay.loca.lt",  # Localtunnel for frontend
-        "https://listing-agent-ebay-api.loca.lt",  # Localtunnel for backend
-        "https://exzellerate.com",  # Production domain
-        "https://www.exzellerate.com",  # Production domain with www
-        "http://exzellerate.com",  # Allow HTTP for redirect
-        "http://www.exzellerate.com",  # Allow HTTP for redirect
-        "https://exzellerate.onrender.com",  # Render pre-prod
+        "https://exzellerate.com",
+        "https://www.exzellerate.com",
+        "https://exzellerate.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -104,7 +128,7 @@ async def root():
 # Helper function to save uploaded images
 def save_uploaded_image(file_contents: bytes, original_filename: str) -> tuple[str, str]:
     """
-    Save uploaded image to disk and return filename and URL.
+    Save uploaded image to R2 (if configured) or local disk.
 
     Args:
         file_contents: Binary image data
@@ -121,16 +145,35 @@ def save_uploaded_image(file_contents: bytes, original_filename: str) -> tuple[s
     # Generate unique filename
     unique_id = str(uuid.uuid4())
     filename = f"{unique_id}{ext}"
-    filepath = UPLOADS_DIR / filename
 
-    # Save file
+    # Try R2 first if configured
+    r2 = _get_r2_client()
+    if r2:
+        try:
+            content_type_map = {
+                ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif",
+            }
+            content_type = content_type_map.get(ext, "image/jpeg")
+            r2.put_object(
+                Bucket=R2_BUCKET_NAME,
+                Key=filename,
+                Body=file_contents,
+                ContentType=content_type,
+            )
+            public_base = R2_PUBLIC_URL.rstrip("/") if R2_PUBLIC_URL else f"https://{R2_BUCKET_NAME}.{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+            image_url = f"{public_base}/{filename}"
+            logger.info(f"Saved image to R2: {filename} -> {image_url}")
+            return filename, image_url
+        except Exception as e:
+            logger.warning(f"R2 upload failed, falling back to local disk: {e}")
+
+    # Local disk fallback (dev or R2 not configured)
+    filepath = UPLOADS_DIR / filename
     with open(filepath, "wb") as f:
         f.write(file_contents)
-
-    # Generate URL
     image_url = f"{API_BASE_URL}/uploads/{filename}"
-    logger.info(f"Saved image: {filename} -> {image_url}")
-
+    logger.info(f"Saved image locally: {filename} -> {image_url}")
     return filename, image_url
 
 
@@ -251,13 +294,14 @@ async def health_check():
         500: {"model": ErrorResponse}
     }
 )
+@limiter.limit("10/minute")
 async def analyze_image(
     request: Request,
     files: List[UploadFile] = File(..., description="Product image files (1-5 images)"),
     platform: Optional[str] = Form(default="ebay", description="Target platform: ebay, amazon, or walmart"),
     user_context: Optional[str] = Form(default=None, description="Optional user-provided context to improve analysis accuracy"),
     db: Session = Depends(get_db),
-    user: Optional[ClerkUser] = Depends(get_current_user)
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Analyze product images and generate marketplace listing content.
@@ -573,6 +617,7 @@ async def analyze_image(
 
         # Store analysis in database
         analysis = ProductAnalysis(
+            user_id=user.id,
             image_path=first_image_url,
             image_urls=all_image_urls,  # Store ALL uploaded image URLs
             image_hash=image_hashes[0],  # Use first image hash as primary
@@ -730,13 +775,14 @@ async def analyze_image(
 # ========================================
 
 @app.post("/api/analyze-stream")
+@limiter.limit("10/minute")
 async def analyze_image_stream(
     request: Request,
     files: List[UploadFile] = File(..., description="Product image files (1-5 images)"),
     platform: Optional[str] = Form(default="ebay", description="Target platform"),
     user_context: Optional[str] = Form(default=None, description="Optional user context"),
     db: Session = Depends(get_db),
-    user: Optional[ClerkUser] = Depends(get_current_user)
+    user: ClerkUser = Depends(require_auth)
 ):
     """Analyze product images with SSE progress streaming.
 
@@ -909,6 +955,7 @@ async def analyze_image_stream(
                 all_image_urls = [img[2] for img in images_data if len(img) > 2]
                 first_image_url = all_image_urls[0] if all_image_urls else None
                 analysis_record = ProductAnalysis(
+                    user_id=user.id,
                     image_path=first_image_url,
                     image_urls=all_image_urls,
                     image_hash=image_hashes[0] or "unknown",
@@ -1048,7 +1095,8 @@ class CategoryRecommendationsResponse(PydanticBaseModel):
 )
 async def get_category_recommendations(
     analysis_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get eBay category recommendations for a completed analysis.
@@ -1168,7 +1216,8 @@ async def get_category_recommendations(
 )
 async def analyze_category_aspects(
     request: CategoryAspectRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Perform category-specific aspect analysis (second-pass).
@@ -1389,7 +1438,8 @@ async def analyze_category_aspects(
 )
 async def confirm_analysis(
     request: ConfirmAnalysisRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Confirm or update an analysis with user feedback.
@@ -1515,7 +1565,8 @@ async def confirm_analysis(
         500: {"model": ErrorResponse}
     }
 )
-async def research_pricing(request: PricingRequest):
+@limiter.limit("20/minute")
+async def research_pricing(request: Request, body: PricingRequest, user: ClerkUser = Depends(require_auth)):
     """
     Research market pricing for a product using AI analysis.
 
@@ -1528,11 +1579,11 @@ async def research_pricing(request: PricingRequest):
     Raises:
         HTTPException: If research fails
     """
-    logger.info(f"Received pricing research request for: {request.product_name} on {request.platform}")
+    logger.info(f"Received pricing research request for: {body.product_name} on {body.platform}")
 
     # Validate platform
     valid_platforms = ["ebay", "amazon", "walmart"]
-    if request.platform not in valid_platforms:
+    if body.platform not in valid_platforms:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid platform. Must be one of: {', '.join(valid_platforms)}"
@@ -1544,13 +1595,13 @@ async def research_pricing(request: PricingRequest):
 
         # Research pricing
         result = await researcher.research_pricing(
-            product_name=request.product_name,
-            category=request.category,
-            condition=request.condition,
-            platform=request.platform
+            product_name=body.product_name,
+            category=body.category,
+            condition=body.condition,
+            platform=body.platform
         )
 
-        logger.info(f"Pricing research complete for: {request.product_name}")
+        logger.info(f"Pricing research complete for: {body.product_name}")
         logger.info(f"Suggested price: ${result.statistics.suggested_price}, Confidence: {result.confidence_score}%")
         return result
 
@@ -1718,7 +1769,8 @@ async def get_learning_stats(db: Session = Depends(get_db)):
 )
 async def trigger_aggregation(
     request: AggregateRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Manually trigger aggregation of product analyses into learned products.
@@ -1775,7 +1827,8 @@ async def trigger_aggregation(
 )
 async def get_ebay_auth_url(
     state: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get eBay OAuth authorization URL.
@@ -1785,6 +1838,7 @@ async def get_ebay_auth_url(
     Args:
         state: Optional CSRF protection token
         db: Database session
+        user: Authenticated user
 
     Returns:
         Dict with authorization_url and state
@@ -1828,7 +1882,8 @@ async def get_ebay_auth_url(
 async def handle_ebay_auth_callback(
     code: str = Form(..., description="Authorization code from eBay"),
     state: Optional[str] = Form(None, description="State parameter for verification"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Handle eBay OAuth callback.
@@ -1839,6 +1894,7 @@ async def handle_ebay_auth_callback(
         code: Authorization code from eBay
         state: State parameter for CSRF verification
         db: Database session
+        user: Authenticated user
 
     Returns:
         Dict with success status and token expiry
@@ -1852,7 +1908,7 @@ async def handle_ebay_auth_callback(
         from services.ebay.oauth import get_ebay_oauth_service
 
         oauth_service = get_ebay_oauth_service(db)
-        result = oauth_service.exchange_code_for_token(code)
+        result = oauth_service.exchange_code_for_token(code, user_id=user.id)
 
         return {
             "success": True,
@@ -1874,15 +1930,15 @@ async def handle_ebay_auth_callback(
     }
 )
 async def get_ebay_auth_status(
-    user_id: str = "default_user",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Check eBay authentication status.
 
     Args:
-        user_id: User identifier
         db: Database session
+        user: Authenticated user
 
     Returns:
         Dict with authentication status and details
@@ -1890,6 +1946,7 @@ async def get_ebay_auth_status(
     Raises:
         HTTPException: If status check fails
     """
+    user_id = user.id
     logger.info(f"Checking eBay auth status for user: {user_id}")
 
     try:
@@ -1919,15 +1976,15 @@ async def get_ebay_auth_status(
     }
 )
 async def revoke_ebay_credentials(
-    user_id: str = "default_user",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Revoke eBay credentials.
 
     Args:
-        user_id: User identifier
         db: Database session
+        user: Authenticated user
 
     Returns:
         Dict with success status
@@ -1935,6 +1992,7 @@ async def revoke_ebay_credentials(
     Raises:
         HTTPException: If revocation fails
     """
+    user_id = user.id
     logger.info(f"Revoking eBay credentials for user: {user_id}")
 
     try:
@@ -1965,16 +2023,16 @@ async def revoke_ebay_credentials(
 )
 async def get_category_item_specifics(
     category_id: str,
-    user_id: str = "default_user",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get item specifics (product attributes) for an eBay category.
 
     Args:
         category_id: eBay category ID
-        user_id: User identifier
         db: Database session
+        user: Authenticated user
 
     Returns:
         Dict with item_specifics array containing required and recommended attributes
@@ -1982,6 +2040,7 @@ async def get_category_item_specifics(
     Raises:
         HTTPException: If category lookup fails
     """
+    user_id = user.id
     logger.info(f"Fetching item specifics for category: {category_id}")
 
     try:
@@ -2037,7 +2096,9 @@ async def get_category_item_specifics(
         500: {"model": ErrorResponse}
     }
 )
+@limiter.limit("5/minute")
 async def create_ebay_listing(
+    request: Request,
     analysis_id: Optional[int] = Form(None, description="Link to product analysis"),
     title: str = Form(..., description="Listing title"),
     description: str = Form(..., description="Listing description"),
@@ -2051,8 +2112,8 @@ async def create_ebay_listing(
     shipping_width: Optional[float] = Form(None, description="Package width in inches"),
     shipping_height: Optional[float] = Form(None, description="Package height in inches"),
     item_specifics: Optional[str] = Form(None, description="JSON string of item specifics"),
-    user_id: str = "default_user",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Create a new eBay listing.
@@ -2079,6 +2140,7 @@ async def create_ebay_listing(
     Raises:
         HTTPException: If listing creation fails
     """
+    user_id = user.id
     logger.info(f"Creating eBay listing: {title[:50]}...")
 
     try:
@@ -2163,7 +2225,8 @@ async def create_ebay_listing(
 )
 async def get_ebay_listing(
     listing_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get eBay listing status.
@@ -2237,16 +2300,16 @@ async def get_ebay_listing(
 )
 async def retry_ebay_listing(
     listing_id: int,
-    user_id: str = "default_user",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Retry a failed eBay listing.
 
     Args:
         listing_id: Listing ID to retry
-        user_id: User identifier
         db: Database session
+        user: Authenticated user
 
     Returns:
         Dict with retry status
@@ -2254,6 +2317,7 @@ async def retry_ebay_listing(
     Raises:
         HTTPException: If listing cannot be retried
     """
+    user_id = user.id
     logger.info(f"Retrying eBay listing: {listing_id}")
 
     try:
@@ -2296,7 +2360,8 @@ async def list_ebay_listings(
     status: Optional[str] = None,
     limit: int = 10,
     offset: int = 0,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     List all eBay listings with optional filtering.
@@ -2375,7 +2440,8 @@ async def list_ebay_listings(
 )
 async def search_ebay_categories(
     query: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Search for eBay categories by keyword.
@@ -2441,7 +2507,8 @@ async def recommend_ebay_categories(
     brand: Optional[str] = None,
     category: Optional[str] = None,
     keywords: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get AI-powered category recommendations for a product.
@@ -2524,7 +2591,8 @@ async def recommend_ebay_categories(
     }
 )
 async def get_category_aspects(
-    category_id: str
+    category_id: str,
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get item aspects (specifics) for an eBay category from local cache.
@@ -2575,15 +2643,15 @@ async def get_category_aspects(
     }
 )
 async def get_fulfillment_policies(
-    user_id: str = "default_user",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get user's fulfillment (shipping) policies.
 
     Args:
-        user_id: User identifier
         db: Database session
+        user: Authenticated user
 
     Returns:
         Dict with fulfillment policies
@@ -2591,6 +2659,7 @@ async def get_fulfillment_policies(
     Raises:
         HTTPException: If retrieval fails
     """
+    user_id = user.id
     logger.info(f"Getting fulfillment policies for user: {user_id}")
 
     try:
@@ -2618,15 +2687,15 @@ async def get_fulfillment_policies(
     }
 )
 async def get_return_policies(
-    user_id: str = "default_user",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get user's return policies.
 
     Args:
-        user_id: User identifier
         db: Database session
+        user: Authenticated user
 
     Returns:
         Dict with return policies
@@ -2634,6 +2703,7 @@ async def get_return_policies(
     Raises:
         HTTPException: If retrieval fails
     """
+    user_id = user.id
     logger.info(f"Getting return policies for user: {user_id}")
 
     try:
@@ -2661,15 +2731,15 @@ async def get_return_policies(
     }
 )
 async def get_payment_policies(
-    user_id: str = "default_user",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get user's payment policies.
 
     Args:
-        user_id: User identifier
         db: Database session
+        user: Authenticated user
 
     Returns:
         Dict with payment policies
@@ -2677,6 +2747,7 @@ async def get_payment_policies(
     Raises:
         HTTPException: If retrieval fails
     """
+    user_id = user.id
     logger.info(f"Getting payment policies for user: {user_id}")
 
     try:
@@ -2704,15 +2775,15 @@ async def get_payment_policies(
     }
 )
 async def get_business_policies(
-    user_id: str = "default_user",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get all business policies (fulfillment, payment, return) for a user.
 
     Args:
-        user_id: User identifier
         db: Database session
+        user: Authenticated user
 
     Returns:
         Dict containing fulfillment_policies, payment_policies, and return_policies
@@ -2720,6 +2791,7 @@ async def get_business_policies(
     Raises:
         HTTPException: If retrieval fails
     """
+    user_id = user.id
     logger.info(f"Getting all business policies for user: {user_id}")
 
     try:
@@ -2768,7 +2840,8 @@ async def global_exception_handler(request, exc):
 )
 async def create_draft(
     draft: CreateDraftRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Create a new draft listing.
@@ -2776,6 +2849,7 @@ async def create_draft(
     Args:
         draft: Draft listing data
         db: Database session
+        user: Authenticated user
 
     Returns:
         DraftListingResponse with created draft details
@@ -2790,6 +2864,7 @@ async def create_draft(
 
         # Create draft listing
         db_draft = DraftListing(
+            user_id=user.id,
             analysis_id=draft.analysis_id,
             title=draft.title,
             description=draft.description,
@@ -2854,19 +2929,17 @@ async def create_draft(
     responses={500: {"model": ErrorResponse}}
 )
 async def list_drafts(
-    request: Request,
     platform: Optional[str] = None,
     db: Session = Depends(get_db),
-    user: Optional[ClerkUser] = Depends(get_current_user)
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     List all draft listings for the current user.
 
     Args:
-        request: FastAPI request object
         platform: Optional filter by platform
         db: Database session
-        user: Authenticated user (optional during transition)
+        user: Authenticated user
 
     Returns:
         List of DraftListingSummary
@@ -2877,7 +2950,7 @@ async def list_drafts(
     from database_models import DraftListing, ProductAnalysis
 
     try:
-        user_id = get_user_id_from_request(request, user)
+        user_id = user.id
         query = db.query(DraftListing).filter(DraftListing.user_id == user_id)
 
         if platform:
@@ -2940,7 +3013,8 @@ async def list_drafts(
 )
 async def get_draft(
     draft_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get a specific draft listing.
@@ -2948,6 +3022,7 @@ async def get_draft(
     Args:
         draft_id: Draft ID
         db: Database session
+        user: Authenticated user
 
     Returns:
         DraftListingResponse with draft details
@@ -2960,7 +3035,7 @@ async def get_draft(
     try:
         draft = db.query(DraftListing).filter(
             DraftListing.id == draft_id,
-            DraftListing.user_id == "default_user"
+            DraftListing.user_id == user.id
         ).first()
 
         if not draft:
@@ -3028,7 +3103,8 @@ async def get_draft(
 async def update_draft(
     draft_id: int,
     updates: UpdateDraftRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Update a draft listing.
@@ -3037,6 +3113,7 @@ async def update_draft(
         draft_id: Draft ID
         updates: Updated draft data
         db: Database session
+        user: Authenticated user
 
     Returns:
         DraftListingResponse with updated draft details
@@ -3049,7 +3126,7 @@ async def update_draft(
     try:
         draft = db.query(DraftListing).filter(
             DraftListing.id == draft_id,
-            DraftListing.user_id == "default_user"
+            DraftListing.user_id == user.id
         ).first()
 
         if not draft:
@@ -3112,7 +3189,8 @@ async def update_draft(
 )
 async def delete_draft(
     draft_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Delete a draft listing.
@@ -3120,6 +3198,7 @@ async def delete_draft(
     Args:
         draft_id: Draft ID
         db: Database session
+        user: Authenticated user
 
     Returns:
         Success message
@@ -3132,7 +3211,7 @@ async def delete_draft(
     try:
         draft = db.query(DraftListing).filter(
             DraftListing.id == draft_id,
-            DraftListing.user_id == "default_user"
+            DraftListing.user_id == user.id
         ).first()
 
         if not draft:
@@ -3171,7 +3250,8 @@ async def delete_draft(
 async def get_active_listings(
     page: int = 1,
     limit: int = 20,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get active eBay listings with pagination.
@@ -3252,7 +3332,8 @@ async def get_active_listings(
 async def get_sold_listings(
     page: int = 1,
     limit: int = 20,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Get sold eBay listings with pagination.
@@ -3331,7 +3412,8 @@ async def get_sold_listings(
     responses={500: {"model": ErrorResponse}}
 )
 async def sync_listings(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
 ):
     """
     Manually sync listings from eBay.
@@ -3339,6 +3421,7 @@ async def sync_listings(
 
     Args:
         db: Database session
+        user: Authenticated user
 
     Returns:
         Sync summary with counts and errors
@@ -3356,12 +3439,12 @@ async def sync_listings(
 
         # Sync active listings and metrics
         logger.info("Starting manual sync of eBay listings")
-        active_summary = listing_service.sync_listings_from_ebay("default_user")
+        active_summary = listing_service.sync_listings_from_ebay(user.id)
 
         # Sync sold listings (non-fatal — don't let this block active sync results)
         sold_summary = {"orders_processed": 0, "listings_updated": 0, "errors": []}
         try:
-            sold_summary = listing_service.update_sold_listings("default_user")
+            sold_summary = listing_service.update_sold_listings(user.id)
         except Exception as sold_err:
             logger.warning(f"Sold listings sync failed (non-fatal): {sold_err}")
             sold_summary["errors"].append(f"Sold sync failed: {str(sold_err)}")
@@ -3538,7 +3621,7 @@ async def get_public_stats(db: Session = Depends(get_db)):
 # ====================================================================================
 
 @app.get("/api/performance/logs")
-async def get_performance_logs():
+async def get_performance_logs(user: ClerkUser = Depends(require_auth)):
     """
     Get performance logs from all log files.
 
@@ -3612,7 +3695,7 @@ async def get_performance_logs():
 
 
 @app.get("/api/debug/errors")
-async def get_debug_errors(limit: int = 20):
+async def get_debug_errors(limit: int = 20, user: ClerkUser = Depends(require_auth)):
     """Return recent error entries from request_status.jsonl."""
     import json as json_mod
 
@@ -3653,7 +3736,7 @@ async def get_debug_errors(limit: int = 20):
 
 
 @app.get("/api/debug/errors/{request_id}/raw")
-async def get_debug_error_raw(request_id: str):
+async def get_debug_error_raw(request_id: str, user: ClerkUser = Depends(require_auth)):
     """Serve the saved raw response file for a failed request."""
     from fastapi.responses import PlainTextResponse
 

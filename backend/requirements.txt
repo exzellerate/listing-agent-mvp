@@ -19,6 +19,15 @@ cryptography==42.0.0
 # Production server
 gunicorn==21.2.0
 
+# PostgreSQL driver
+psycopg2-binary==2.9.9
+
+# Rate limiting
+slowapi==0.1.9
+
+# Object storage (Cloudflare R2 / S3-compatible)
+boto3==1.34.69
+
 # Testing dependencies
 rapidfuzz==3.6.1
 pandas==2.2.0
