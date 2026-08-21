@@ -8,6 +8,7 @@ interface EbayPostingSectionProps {
   analysisId?: number;
   imageFiles?: File[];
   imageUrls?: string[];
+  editedItemSpecifics?: Record<string, string | string[]>;
 }
 
 interface EbayAuthStatus {
@@ -29,7 +30,7 @@ interface EbayListingStatus {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-export function EbayPostingSection({ result, pricingData, analysisId, imageFiles = [], imageUrls: imageUrlsProp }: EbayPostingSectionProps) {
+export function EbayPostingSection({ result, pricingData, analysisId, imageFiles = [], imageUrls: imageUrlsProp, editedItemSpecifics }: EbayPostingSectionProps) {
   const [authStatus, setAuthStatus] = useState<EbayAuthStatus | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [listingStatus, setListingStatus] = useState<EbayListingStatus | null>(null);
@@ -372,7 +373,7 @@ export function EbayPostingSection({ result, pricingData, analysisId, imageFiles
         }}
         analysisId={analysisId}
         ebayCategory={result.ebay_category}
-        ebayAspects={result.ebay_aspects}
+        ebayAspects={editedItemSpecifics || result.ebay_aspects}
         onSuccess={(listingId) => {
           setWizardOpen(false);
           setListingStatus({
