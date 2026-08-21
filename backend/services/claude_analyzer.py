@@ -13,6 +13,9 @@ from utils.performance_logger import PerformanceTracker
 from services.ebay.category_matcher import EbayCategoryMatcher
 from services.ebay.aspect_loader import get_aspect_loader, get_formatted_aspects_for_category
 
+# Must match MAX_IMAGES in main.py
+MAX_IMAGES = 10
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -961,8 +964,8 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
         Raises:
             Exception: If API call fails or response is invalid
         """
-        if not images_data or len(images_data) > 5:
-            raise ValueError("Must provide between 1 and 5 images")
+        if not images_data or len(images_data) > MAX_IMAGES:
+            raise ValueError(f"Must provide between 1 and {MAX_IMAGES} images")
 
         logger.info(f"Analyzing {len(images_data)} images for platform: {platform}")
 
