@@ -27,6 +27,8 @@ function UploadPage() {
   const [error, setError] = useState<ErrorState | null>(null);
   const [backendHealthy, setBackendHealthy] = useState<boolean | null>(null);
   const [selectedPrice, setSelectedPrice] = useState<number | undefined>(undefined);
+  const [editedAspects, setEditedAspects] = useState<Record<string, string | string[]>>({});
+  const [editedAttributes, setEditedAttributes] = useState<Record<string, any>>({});
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
   const [correctionAction] = useState<'edited' | 'rejected'>('edited');
   const [savingDraft, setSavingDraft] = useState(false);
@@ -54,7 +56,11 @@ function UploadPage() {
     checkBackendHealth();
   }, []);
 
-
+  // Reset edited item specifics/attributes whenever a new analysis result arrives
+  useEffect(() => {
+    setEditedAspects(result?.ebay_aspects || {});
+    setEditedAttributes(result?.product_attributes || {});
+  }, [result]);
 
   // Load draft if draftId is provided in URL
   useEffect(() => {
@@ -241,6 +247,30 @@ function UploadPage() {
 
   const cancelStartOver = () => {
     setShowStartOverConfirmation(false);
+  };
+
+  // Merge edited item specifics + product attributes into one flat map of
+  // eBay aspect name -> value, for the eBay listing wizard's pre-fill data.
+  const getMergedItemSpecifics = (): Record<string, string | string[]> => {
+    const { additional_attributes, ...topLevelAttributes } = editedAttributes;
+    const merged: Record<string, any> = {
+      ...editedAspects,
+      ...topLevelAttributes,
+      ...(additional_attributes || {}),
+    };
+
+    const cleaned: Record<string, string | string[]> = {};
+    Object.entries(merged).forEach(([key, value]) => {
+      if (value === null || value === undefined) return;
+      if (Array.isArray(value)) {
+        if (value.length > 0) cleaned[key] = value;
+      } else if (typeof value === 'string') {
+        if (value.trim() !== '') cleaned[key] = value;
+      } else if (typeof value !== 'object') {
+        cleaned[key] = String(value);
+      }
+    });
+    return cleaned;
   };
 
   const handlePriceSelected = (price: number) => {
@@ -601,6 +631,8 @@ function UploadPage() {
                 result={result}
                 price={selectedPrice}
                 onPriceChange={handlePriceSelected}
+                onAspectsChange={setEditedAspects}
+                onAttributesChange={setEditedAttributes}
               />
             </div>
 
@@ -652,6 +684,7 @@ function UploadPage() {
                   analysisId={result.analysis_id}
                   imageFiles={loadedFromDraft ? [] : selectedFiles}
                   imageUrls={loadedFromDraft ? (result.image_urls || []) : []}
+                  editedItemSpecifics={getMergedItemSpecifics()}
                 />
               </>
             )}

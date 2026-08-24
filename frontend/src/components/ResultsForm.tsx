@@ -7,14 +7,17 @@ interface ResultsFormProps {
   result: AnalysisResult;
   price?: number;
   onPriceChange?: (price: number) => void;
+  onAspectsChange?: (aspects: Record<string, string | string[]>) => void;
+  onAttributesChange?: (attributes: Record<string, any>) => void;
 }
 
-export default function ResultsForm({ result, price, onPriceChange }: ResultsFormProps) {
+export default function ResultsForm({ result, price, onPriceChange, onAspectsChange, onAttributesChange }: ResultsFormProps) {
   const [title, setTitle] = useState(result.suggested_title);
   const [description, setDescription] = useState(result.suggested_description);
   const [category, setCategory] = useState(result.category || '');
   const [condition, setCondition] = useState(result.condition);
   const [priceInput, setPriceInput] = useState(price?.toFixed(2) || '');
+  const [aspects, setAspects] = useState<Record<string, string | string[]>>(result.ebay_aspects || {});
   const [showReasoning, setShowReasoning] = useState(false);
   const [showDiscrepancies, setShowDiscrepancies] = useState(false);
   const [showEbayCategory, setShowEbayCategory] = useState(true);  // Expanded by default
@@ -26,7 +29,20 @@ export default function ResultsForm({ result, price, onPriceChange }: ResultsFor
     setDescription(result.suggested_description);
     setCategory(result.category || '');
     setCondition(result.condition);
+    setAspects(result.ebay_aspects || {});
   }, [result]);
+
+  const handleAspectChange = (name: string, value: string) => {
+    // Preserve multi-value aspects as arrays: split on comma, trim, drop empties
+    const originalValue = result.ebay_aspects?.[name];
+    const newValue: string | string[] = Array.isArray(originalValue)
+      ? value.split(',').map(v => v.trim()).filter(Boolean)
+      : value;
+
+    const newAspects = { ...aspects, [name]: newValue };
+    setAspects(newAspects);
+    if (onAspectsChange) onAspectsChange(newAspects);
+  };
 
   // Update price input when price prop changes
   useEffect(() => {
@@ -422,31 +438,27 @@ export default function ResultsForm({ result, price, onPriceChange }: ResultsFor
 
           {showEbayAspects && (
             <div className="p-4 border-t border-gray-200 bg-gray-50">
-              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Aspect
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Value
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {Object.entries(result.ebay_aspects).map(([name, value]) => (
-                      <tr key={name} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                          {name}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
-                          {Array.isArray(value) ? value.join(', ') : value}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+                {Object.entries(result.ebay_aspects).map(([name]) => {
+                  const value = aspects[name] ?? '';
+                  const displayValue = Array.isArray(value) ? value.join(', ') : value;
+                  return (
+                    <div key={name} className="grid grid-cols-3 gap-4 items-center">
+                      <label htmlFor={`aspect-${name}`} className="text-sm font-medium text-gray-900">
+                        {name}
+                      </label>
+                      <input
+                        id={`aspect-${name}`}
+                        type="text"
+                        value={displayValue}
+                        onChange={(e) => handleAspectChange(name, e.target.value)}
+                        placeholder="Not found — enter a value"
+                        className="col-span-2 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                        aria-label={`${name} value`}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -454,7 +466,7 @@ export default function ResultsForm({ result, price, onPriceChange }: ResultsFor
       )}
 
       {/* Product Attributes Display */}
-      <AttributesDisplay result={result} />
+      <AttributesDisplay result={result} onAttributesChange={onAttributesChange} />
 
       {/* Title */}
       <div className="space-y-2">
