@@ -1,4 +1,5 @@
 import { AnalysisResult, Platform, PricingData, TestBatchResponse, ConfirmAnalysisRequest, ConfirmAnalysisResponse, LearningStats, CreateDraftRequest, DraftListing, DraftListingSummary, ListingsResponse, SyncResponse, CategoryAspectRequest, CategoryAspectResponse, CategoryRecommendation } from '../types';
+import { MAX_IMAGES } from '../constants';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -84,8 +85,8 @@ export async function analyzeImages(
     throw new APIError('No files provided', 400);
   }
 
-  if (files.length > 5) {
-    throw new APIError('Maximum 5 images allowed', 400);
+  if (files.length > MAX_IMAGES) {
+    throw new APIError(`Maximum ${MAX_IMAGES} images allowed`, 400);
   }
 
   if (!['ebay', 'amazon', 'walmart'].includes(platform)) {
@@ -234,7 +235,7 @@ export async function analyzeImagesWithProgress(
 ): Promise<AnalysisResult> {
   // Validate inputs (same as analyzeImages)
   if (!files || files.length === 0) throw new APIError('No files provided', 400);
-  if (files.length > 5) throw new APIError('Maximum 5 images allowed', 400);
+  if (files.length > MAX_IMAGES) throw new APIError(`Maximum ${MAX_IMAGES} images allowed`, 400);
   if (!['ebay', 'amazon', 'walmart'].includes(platform)) throw new APIError('Invalid platform selected', 400);
 
   const maxSize = 10 * 1024 * 1024;

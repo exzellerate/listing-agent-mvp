@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, DragEvent } from 'react';
 import { Upload, Image } from 'lucide-react';
+import { MAX_IMAGES } from '../constants';
 
 interface ImageFile {
   file: File;
@@ -37,7 +38,7 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
   const validateAndAddFiles = (newFiles: FileList | File[]) => {
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
     const maxSize = 10 * 1024 * 1024; // 10MB
-    const maxImages = 5;
+    const maxImages = MAX_IMAGES;
 
     const filesArray = Array.from(newFiles);
     const currentCount = images.length;
@@ -119,7 +120,7 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
   };
 
   const handleClick = () => {
-    if (!disabled && images.length < 5) {
+    if (!disabled && images.length < MAX_IMAGES) {
       fileInputRef.current?.click();
     }
   };
@@ -181,7 +182,7 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
       )}
 
       {/* Upload Area - Matching Mockup Design */}
-      {images.length < 5 && !hideUploadArea && (
+      {images.length < MAX_IMAGES && !hideUploadArea && (
         <div className="bg-white rounded-2xl border-2 border-gray-200 p-8">
           <div
             onClick={handleClick}

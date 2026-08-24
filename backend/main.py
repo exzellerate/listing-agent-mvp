@@ -14,6 +14,10 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+# Load environment variables before importing local modules that read
+# os.getenv() at import time (e.g. services.auth reading CLERK_ISSUER).
+load_dotenv()
+
 from models import (
     AnalysisResponse, ErrorResponse, Platform, PricingRequest, PricingResponse,
     TestBatchResponse, ConfirmAnalysisRequest, ConfirmAnalysisResponse,
@@ -30,9 +34,6 @@ from services.ebay.media import EbayMediaService
 from services.auth import get_current_user, require_auth, ClerkUser, get_user_id_from_request
 from database import init_db, get_db
 
-# Load environment variables
-load_dotenv()
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +44,9 @@ logger = logging.getLogger(__name__)
 # Setup uploads directory
 UPLOADS_DIR = Path(__file__).parent / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
+
+# Maximum product images accepted per analysis/listing (well under eBay's own limit of 24)
+MAX_IMAGES = 10
 
 # Frontend static files directory (populated by build.sh)
 STATIC_DIR = Path(__file__).parent / "static"
@@ -297,7 +301,7 @@ async def health_check():
 @limiter.limit("10/minute")
 async def analyze_image(
     request: Request,
-    files: List[UploadFile] = File(..., description="Product image files (1-5 images)"),
+    files: List[UploadFile] = File(..., description=f"Product image files (1-{MAX_IMAGES} images)"),
     platform: Optional[str] = Form(default="ebay", description="Target platform: ebay, amazon, or walmart"),
     user_context: Optional[str] = Form(default=None, description="Optional user-provided context to improve analysis accuracy"),
     db: Session = Depends(get_db),
@@ -305,11 +309,11 @@ async def analyze_image(
 ):
     """
     Analyze product images and generate marketplace listing content.
-    Supports 1-5 images for cross-referencing and confidence scoring.
+    Supports 1-10 images for cross-referencing and confidence scoring.
     Stores analysis in database for learning system.
 
     Args:
-        files: Uploaded image files (JPEG, PNG, WebP, GIF) - 1 to 5 images
+        files: Uploaded image files (JPEG, PNG, WebP, GIF) - 1 to 10 images
         platform: Target marketplace platform (ebay, amazon, walmart)
         db: Database session
 
@@ -348,20 +352,20 @@ async def analyze_image(
             status_code=400,
             detail="At least one image is required"
         )
-    if len(files) > 5:
+    if len(files) > MAX_IMAGES:
         log_request_status(
             request_id=request_id,
             status="error",
             error={
                 "type": "validation_error",
-                "message": "Maximum 5 images allowed",
+                "message": f"Maximum {MAX_IMAGES} images allowed",
                 "details": f"Received {len(files)} files",
                 "traceback": ""
             }
         )
         raise HTTPException(
             status_code=400,
-            detail="Maximum 5 images allowed"
+            detail=f"Maximum {MAX_IMAGES} images allowed"
         )
 
     # Validate platform
@@ -778,7 +782,7 @@ async def analyze_image(
 @limiter.limit("10/minute")
 async def analyze_image_stream(
     request: Request,
-    files: List[UploadFile] = File(..., description="Product image files (1-5 images)"),
+    files: List[UploadFile] = File(..., description=f"Product image files (1-{MAX_IMAGES} images)"),
     platform: Optional[str] = Form(default="ebay", description="Target platform"),
     user_context: Optional[str] = Form(default=None, description="Optional user context"),
     db: Session = Depends(get_db),
@@ -803,8 +807,8 @@ async def analyze_image_stream(
     # Quick validation only (no file I/O) so we can return StreamingResponse fast
     if not files or len(files) < 1:
         raise HTTPException(status_code=400, detail="At least one image is required")
-    if len(files) > 5:
-        raise HTTPException(status_code=400, detail="Maximum 5 images allowed")
+    if len(files) > MAX_IMAGES:
+        raise HTTPException(status_code=400, detail=f"Maximum {MAX_IMAGES} images allowed")
 
     valid_platforms = ["ebay", "amazon", "walmart"]
     if platform not in valid_platforms:

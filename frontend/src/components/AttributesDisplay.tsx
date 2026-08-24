@@ -1,12 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AnalysisResult } from '../types';
 
 interface AttributesDisplayProps {
   result: AnalysisResult;
+  onAttributesChange?: (attributes: Record<string, any>) => void;
 }
 
-export default function AttributesDisplay({ result }: AttributesDisplayProps) {
+export default function AttributesDisplay({ result, onAttributesChange }: AttributesDisplayProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [attributes, setAttributes] = useState<Record<string, any>>(result.product_attributes || {});
+
+  // Update state when result changes
+  useEffect(() => {
+    setAttributes(result.product_attributes || {});
+  }, [result]);
 
   // Don't render if no attributes data
   if (!result.product_attributes && !result.extracted_attributes) {
@@ -15,6 +22,7 @@ export default function AttributesDisplay({ result }: AttributesDisplayProps) {
 
   const hasProductAttributes = result.product_attributes && Object.keys(result.product_attributes).length > 0;
   const hasExtractedAttributes = result.extracted_attributes && Object.keys(result.extracted_attributes).length > 0;
+  const additionalAttributes = attributes.additional_attributes || {};
 
   const renderAttributeValue = (value: any): string => {
     if (Array.isArray(value)) {
@@ -29,8 +37,35 @@ export default function AttributesDisplay({ result }: AttributesDisplayProps) {
     return String(value);
   };
 
+  const isEditableValue = (value: any): boolean => {
+    return value === null || value === undefined || typeof value !== 'object' || Array.isArray(value);
+  };
+
   const formatKey = (key: string): string => {
     return key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+  };
+
+  const handleAttributeChange = (key: string, rawValue: string) => {
+    const originalValue = result.product_attributes?.[key as keyof typeof result.product_attributes];
+    const newValue: any = Array.isArray(originalValue)
+      ? rawValue.split(',').map(v => v.trim()).filter(Boolean)
+      : rawValue;
+
+    const newAttributes = { ...attributes, [key]: newValue };
+    setAttributes(newAttributes);
+    if (onAttributesChange) onAttributesChange(newAttributes);
+  };
+
+  const handleAdditionalAttributeChange = (key: string, rawValue: string) => {
+    const originalValue = result.product_attributes?.additional_attributes?.[key];
+    const newValue: any = Array.isArray(originalValue)
+      ? rawValue.split(',').map(v => v.trim()).filter(Boolean)
+      : rawValue;
+
+    const newAdditional = { ...additionalAttributes, [key]: newValue };
+    const newAttributes = { ...attributes, additional_attributes: newAdditional };
+    setAttributes(newAttributes);
+    if (onAttributesChange) onAttributesChange(newAttributes);
   };
 
   return (
@@ -68,16 +103,27 @@ export default function AttributesDisplay({ result }: AttributesDisplayProps) {
                 Standard Attributes
               </h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {Object.entries(result.product_attributes!).map(([key, value]) => {
+                {Object.entries(result.product_attributes!).map(([key, originalValue]) => {
                   if (key === 'additional_attributes') return null;
+                  const value = attributes[key];
+                  const displayValue = renderAttributeValue(value);
                   return (
                     <div key={key} className="flex flex-col">
-                      <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      <label htmlFor={`attr-${key}`} className="text-xs font-medium text-gray-500 uppercase tracking-wide">
                         {formatKey(key)}
-                      </span>
-                      <span className="text-sm text-gray-900 mt-1">
-                        {renderAttributeValue(value)}
-                      </span>
+                      </label>
+                      {isEditableValue(originalValue) ? (
+                        <input
+                          id={`attr-${key}`}
+                          type="text"
+                          value={displayValue === 'N/A' ? '' : displayValue}
+                          onChange={(e) => handleAttributeChange(key, e.target.value)}
+                          placeholder="Not found — enter a value"
+                          className="text-sm text-gray-900 mt-1 px-2 py-1 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      ) : (
+                        <span className="text-sm text-gray-900 mt-1">{displayValue}</span>
+                      )}
                     </div>
                   );
                 })}
@@ -89,16 +135,29 @@ export default function AttributesDisplay({ result }: AttributesDisplayProps) {
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <h5 className="text-xs font-semibold text-gray-600 mb-2">Additional Attributes</h5>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {Object.entries(result.product_attributes!.additional_attributes!).map(([key, value]) => (
-                      <div key={key} className="flex flex-col">
-                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                          {formatKey(key)}
-                        </span>
-                        <span className="text-sm text-gray-900 mt-1">
-                          {renderAttributeValue(value)}
-                        </span>
-                      </div>
-                    ))}
+                    {Object.entries(result.product_attributes!.additional_attributes!).map(([key, originalValue]) => {
+                      const value = additionalAttributes[key];
+                      const displayValue = renderAttributeValue(value);
+                      return (
+                        <div key={key} className="flex flex-col">
+                          <label htmlFor={`attr-additional-${key}`} className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                            {formatKey(key)}
+                          </label>
+                          {isEditableValue(originalValue) ? (
+                            <input
+                              id={`attr-additional-${key}`}
+                              type="text"
+                              value={displayValue === 'N/A' ? '' : displayValue}
+                              onChange={(e) => handleAdditionalAttributeChange(key, e.target.value)}
+                              placeholder="Not found — enter a value"
+                              className="text-sm text-gray-900 mt-1 px-2 py-1 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                            />
+                          ) : (
+                            <span className="text-sm text-gray-900 mt-1">{displayValue}</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
