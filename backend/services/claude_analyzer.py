@@ -2049,14 +2049,17 @@ Only use {{ }} for the final JSON output after </aspect_mapping>.
             error_msg = str(e)
             logger.error(f"Error analyzing images batch: {error_msg}")
 
-            if "rate_limit" in error_msg.lower():
-                raise Exception("API rate limit exceeded. Please wait a moment and try again.")
-            elif "authentication" in error_msg.lower() or "api_key" in error_msg.lower():
+            from anthropic import APITimeoutError, RateLimitError, APIConnectionError, APIStatusError
+            if isinstance(e, (APITimeoutError, RateLimitError, APIConnectionError, APIStatusError)):
+                # Preserve the original SDK exception type so callers (main.py)
+                # can isinstance()-check it instead of relying on fragile
+                # substring matching against error_msg (which doesn't reliably
+                # match, e.g. APITimeoutError's message says "timed out", not
+                # "timeout").
+                raise
+
+            if "authentication" in error_msg.lower() or "api_key" in error_msg.lower():
                 raise Exception("Authentication error. Please check your API key configuration.")
-            elif "timeout" in error_msg.lower():
-                raise Exception("Request timed out. The AI service took too long to respond.")
-            elif "overloaded" in error_msg.lower():
-                raise Exception("AI service is temporarily overloaded. Please try again in a moment.")
             else:
                 raise Exception(f"Failed to analyze images: {error_msg}")
 

@@ -5,6 +5,7 @@ import traceback
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -47,6 +48,9 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 
 # Maximum product images accepted per analysis/listing (well under eBay's own limit of 24)
 MAX_IMAGES = 10
+
+# Combined size cap across all files in one analyze request (per-file cap is enforced separately)
+MAX_TOTAL_UPLOAD_SIZE = 40 * 1024 * 1024  # 40MB
 
 # Frontend static files directory (populated by build.sh)
 STATIC_DIR = Path(__file__).parent / "static"
@@ -151,7 +155,12 @@ def save_uploaded_image(file_contents: bytes, original_filename: str) -> tuple[s
     filename = f"{unique_id}{ext}"
 
     # Try R2 first if configured
-    r2 = _get_r2_client()
+    try:
+        r2 = _get_r2_client()
+    except Exception as e:
+        logger.warning(f"R2 client construction failed, falling back to local disk: {e}")
+        r2 = None
+
     if r2:
         try:
             content_type_map = {
@@ -173,12 +182,47 @@ def save_uploaded_image(file_contents: bytes, original_filename: str) -> tuple[s
             logger.warning(f"R2 upload failed, falling back to local disk: {e}")
 
     # Local disk fallback (dev or R2 not configured)
-    filepath = UPLOADS_DIR / filename
-    with open(filepath, "wb") as f:
-        f.write(file_contents)
-    image_url = f"{API_BASE_URL}/uploads/{filename}"
-    logger.info(f"Saved image locally: {filename} -> {image_url}")
-    return filename, image_url
+    try:
+        filepath = UPLOADS_DIR / filename
+        with open(filepath, "wb") as f:
+            f.write(file_contents)
+        image_url = f"{API_BASE_URL}/uploads/{filename}"
+        logger.info(f"Saved image locally: {filename} -> {image_url}")
+        return filename, image_url
+    except Exception as e:
+        logger.error(f"Failed to save image {original_filename} to local disk: {e}")
+        raise ValueError(f"Failed to save image: {e}") from e
+
+
+def cleanup_uploaded_images(saved_filenames: List[str]) -> None:
+    """Best-effort delete of images saved earlier in a request that failed
+    downstream (analysis error, DB commit failure, etc.), to avoid orphaned
+    files accumulating in R2/local storage. Never raises."""
+    if not saved_filenames:
+        return
+    r2 = None
+    try:
+        r2 = _get_r2_client()
+    except Exception as e:
+        logger.warning(f"R2 client construction failed during cleanup: {e}")
+
+    for filename in saved_filenames:
+        deleted_from_r2 = False
+        if r2:
+            try:
+                r2.delete_object(Bucket=R2_BUCKET_NAME, Key=filename)
+                logger.info(f"Cleaned up orphaned R2 image: {filename}")
+                deleted_from_r2 = True
+            except Exception as e:
+                logger.warning(f"Failed to delete orphaned R2 image {filename}: {e}")
+        if not deleted_from_r2:
+            try:
+                local_path = UPLOADS_DIR / filename
+                if local_path.exists():
+                    local_path.unlink()
+                    logger.info(f"Cleaned up orphaned local image: {filename}")
+            except Exception as e:
+                logger.warning(f"Failed to delete orphaned local image {filename}: {e}")
 
 
 def log_request_status(request_id: str, status: str, error: Optional[Dict[str, Any]] = None) -> None:
@@ -336,7 +380,10 @@ async def analyze_image(
     logger.info(f"[{request_id}] Received analyze request for platform: {platform} with {len(files)} image(s)")
     logger.info(f"[{request_id}] User context received: {repr(user_context)}")  # DEBUG: Log user context
 
-    # Validate number of files
+    # Validate number of files. Note: FastAPI's own required-field check on
+    # `files: List[UploadFile] = File(...)` rejects a missing `files` field with
+    # a 422 (handled by validation_exception_handler above) before this route
+    # body ever runs — this check covers the field-present-but-empty-list case.
     if not files or len(files) < 1:
         log_request_status(
             request_id=request_id,
@@ -386,12 +433,15 @@ async def analyze_image(
             detail=f"Invalid platform. Must be one of: {', '.join(valid_platforms)}"
         )
 
-    # Validate and read all files
+    # Validate and read all files. Two-pass structure: validate everything
+    # first (type, size, total size, corruption) before saving anything, so a
+    # later file failing validation can't leave earlier files in the same
+    # batch already persisted with nothing referencing them.
     allowed_types = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB per file
 
-    images_data = []
-    image_hashes = []
+    validated_files = []  # (contents, content_type, filename, image_hash)
+    total_upload_size = 0
 
     for idx, file in enumerate(files):
         # Validate file type
@@ -429,10 +479,26 @@ async def analyze_image(
                 detail=f"Image {idx + 1} exceeds 10MB limit"
             )
 
-        # Generate image hash
+        total_upload_size += len(contents)
+        if total_upload_size > MAX_TOTAL_UPLOAD_SIZE:
+            log_request_status(
+                request_id=request_id,
+                status="error",
+                error={
+                    "type": "validation_error",
+                    "message": "Combined image size exceeds the total limit",
+                    "details": f"Total size so far: {total_upload_size} bytes, Max: {MAX_TOTAL_UPLOAD_SIZE} bytes",
+                    "traceback": ""
+                }
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Combined image size exceeds the {MAX_TOTAL_UPLOAD_SIZE // (1024 * 1024)}MB total limit. Please reduce file sizes or upload fewer images."
+            )
+
+        # Generate image hash (also serves as the only corrupted-image check)
         try:
             image_hash = get_image_hash(contents)
-            image_hashes.append(image_hash)
             logger.info(f"Image {idx + 1} hash: {image_hash}")
         except ValueError as e:
             logger.error(f"Failed to generate hash for image {idx + 1}: {e}")
@@ -451,14 +517,36 @@ async def analyze_image(
                 detail=f"Failed to process image {idx + 1}"
             )
 
-        logger.info(f"Processing image {idx + 1}: {file.filename}, size: {len(contents)} bytes, type: {file.content_type}")
+        logger.info(f"Validated image {idx + 1}: {file.filename}, size: {len(contents)} bytes, type: {file.content_type}")
+        validated_files.append((contents, file.content_type, file.filename, image_hash))
 
-        # Save image to disk and get local URL (for eBay Media API upload)
-        saved_filename, local_image_url = save_uploaded_image(contents, file.filename)
-        logger.info(f"Image {idx + 1} saved as: {saved_filename} -> {local_image_url}")
+    # All files validated — now save them and track filenames so they can be
+    # cleaned up if analysis or the DB commit fails downstream.
+    images_data = []
+    image_hashes = []
+    saved_filenames: List[str] = []
 
-        # Store tuple with local URL - we'll upload to eBay later after analysis
-        images_data.append((contents, file.content_type, local_image_url))
+    try:
+        for idx, (contents, content_type, filename, image_hash) in enumerate(validated_files):
+            saved_filename, local_image_url = save_uploaded_image(contents, filename)
+            saved_filenames.append(saved_filename)
+            logger.info(f"Image {idx + 1} saved as: {saved_filename} -> {local_image_url}")
+            images_data.append((contents, content_type, local_image_url))
+            image_hashes.append(image_hash)
+    except ValueError as e:
+        cleanup_uploaded_images(saved_filenames)
+        logger.error(f"[{request_id}] Failed to save uploaded image: {e}")
+        log_request_status(
+            request_id=request_id,
+            status="error",
+            error={
+                "type": "storage_error",
+                "message": "Failed to save uploaded image",
+                "details": str(e),
+                "traceback": traceback.format_exc()
+            }
+        )
+        raise HTTPException(status_code=500, detail=str(e))
 
     try:
         # Get learning engine and analyzer instances
@@ -707,8 +795,10 @@ async def analyze_image(
 
     except HTTPException:
         # Re-raise HTTPException (these are already logged above in validation)
+        cleanup_uploaded_images(saved_filenames)
         raise
     except ValueError as e:
+        cleanup_uploaded_images(saved_filenames)
         logger.error(f"[{request_id}] Configuration error: {str(e)}")
         log_request_status(
             request_id=request_id,
@@ -725,6 +815,7 @@ async def analyze_image(
             detail="API configuration error. Please check server configuration."
         )
     except Exception as e:
+        cleanup_uploaded_images(saved_filenames)
         logger.error(f"[{request_id}] Analysis failed: {str(e)}")
         db.rollback()
 
@@ -735,7 +826,7 @@ async def analyze_image(
         error_message = "Failed to analyze image"
         status_code = 500
 
-        if isinstance(e, APITimeoutError) or "timeout" in error_str:
+        if isinstance(e, APITimeoutError) or "timeout" in error_str or "timed out" in error_str:
             error_type = "timeout_error"
             error_message = "Analysis timed out. Try again — it often works on retry."
             status_code = 504
@@ -824,10 +915,17 @@ async def analyze_image_stream(
     # objects are tied to the request lifecycle), but defer hashing to run_analysis
     MAX_FILE_SIZE = 10 * 1024 * 1024
     file_contents = []
+    total_upload_size = 0
     for idx, file in enumerate(files):
         contents = await file.read()
         if len(contents) > MAX_FILE_SIZE:
             raise HTTPException(status_code=400, detail=f"Image {idx + 1} exceeds 10MB limit")
+        total_upload_size += len(contents)
+        if total_upload_size > MAX_TOTAL_UPLOAD_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Combined image size exceeds the {MAX_TOTAL_UPLOAD_SIZE // (1024 * 1024)}MB total limit. Please reduce file sizes or upload fewer images."
+            )
         file_contents.append((contents, file.content_type, file.filename))
 
     def progress_callback(stage: str, message: str):
@@ -839,6 +937,7 @@ async def analyze_image_stream(
 
     async def run_analysis():
         """Run the analysis in the background and put result/error into queue."""
+        saved_filenames: List[str] = []
         try:
             progress_callback("validating", "Processing uploaded images...")
 
@@ -849,10 +948,14 @@ async def analyze_image_stream(
                 try:
                     image_hash = get_image_hash(contents)
                     image_hashes.append(image_hash)
-                except ValueError:
-                    image_hashes.append(None)
+                except ValueError as e:
+                    logger.error(f"Failed to process image {idx + 1} in SSE endpoint: {e}")
+                    raise ValueError(
+                        f"Failed to process image {idx + 1}: the file may be corrupted or not a valid image."
+                    ) from e
 
                 saved_filename, local_image_url = save_uploaded_image(contents, filename)
+                saved_filenames.append(saved_filename)
                 images_data.append((contents, content_type, local_image_url))
 
             from services.learning_engine import get_learning_engine
@@ -998,12 +1101,19 @@ async def analyze_image_stream(
 
         except Exception as e:
             logger.error(f"[{request_id}] SSE analysis failed: {e}")
+            cleanup_uploaded_images(saved_filenames)
             from anthropic import APITimeoutError, RateLimitError, APIStatusError, APIConnectionError
             error_str = str(e).lower()
             error_code = 500
             error_msg = str(e)
 
-            if isinstance(e, APITimeoutError) or "timeout" in error_str:
+            if isinstance(e, ValueError) and "Failed to process image" in str(e):
+                error_code = 400
+                error_msg = str(e)
+            elif isinstance(e, ValueError) and "Failed to save image" in str(e):
+                error_code = 500
+                error_msg = str(e)
+            elif isinstance(e, APITimeoutError) or "timeout" in error_str or "timed out" in error_str:
                 error_code = 504
                 error_msg = "Analysis timed out. Try again — it often works on retry."
             elif isinstance(e, RateLimitError):
@@ -2815,6 +2925,31 @@ async def get_business_policies(
             status_code=500,
             detail=f"Failed to get business policies: {str(e)}"
         )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Normalize FastAPI's default 422 body (detail: list[dict]) into the app's
+    ErrorResponse{error, detail} shape — the frontend renders `detail` directly
+    in JSX and crashes if it's not a string. This is the actual path hit when
+    the `files` field is missing/empty on the analyze endpoints, since FastAPI's
+    own required-field check runs before the route body's handwritten check."""
+    for err in exc.errors():
+        if "files" in err.get("loc", ()):
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error": "At least one image is required",
+                    "detail": "The files field is missing or empty."
+                }
+            )
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "Invalid request",
+            "detail": "One or more fields are invalid. Please check your input and try again."
+        }
+    )
 
 
 @app.exception_handler(Exception)

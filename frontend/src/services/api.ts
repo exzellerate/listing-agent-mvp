@@ -339,7 +339,7 @@ export async function analyzeImagesWithProgress(
 
     // On SSE connection failure, fall back to regular endpoint
     if (error instanceof TypeError && error.message.includes('fetch')) {
-      console.warn('SSE fetch failed, falling back to regular analyze');
+      console.warn('SSE fetch failed, falling back to regular analyze. Original error:', error);
       return analyzeImages(files, platform, userContext);
     }
 
