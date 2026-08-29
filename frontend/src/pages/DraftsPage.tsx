@@ -4,6 +4,8 @@ import { listDrafts, deleteDraft } from '../services/api';
 import Layout from '../components/Layout';
 import { Check, MoreVertical, AlertCircle, ImageIcon } from 'lucide-react';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 export default function DraftsPage() {
   const [drafts, setDrafts] = useState<DraftListingSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -11,6 +13,7 @@ export default function DraftsPage() {
   const [filterPlatform, setFilterPlatform] = useState<Platform | 'all'>('all');
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [brokenThumbnails, setBrokenThumbnails] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     loadDrafts();
@@ -186,17 +189,19 @@ export default function DraftsPage() {
                   const missing = getMissingFields(draft);
                   const ready = isDraftReady(draft);
                   const imageCount = draft.image_paths?.length || 0;
+                  const hasWorkingThumbnail = imageCount > 0 && !brokenThumbnails.has(draft.id);
 
                   return (
                     <tr key={draft.id} className="hover:bg-gray-50">
                       {/* Image with count overlay */}
                       <td className="px-4 py-4 whitespace-nowrap">
-                        {imageCount > 0 ? (
+                        {hasWorkingThumbnail ? (
                           <div className="relative w-12 h-12">
                             <img
-                              src={draft.image_paths![0]}
+                              src={draft.image_paths![0].startsWith('http') ? draft.image_paths![0] : `${API_BASE_URL}${draft.image_paths![0]}`}
                               alt={draft.title || 'Product'}
                               className="w-12 h-12 rounded-md object-cover"
+                              onError={() => setBrokenThumbnails(prev => new Set(prev).add(draft.id))}
                             />
                             {imageCount > 1 && (
                               <span className="absolute -top-1 -right-1 bg-gray-800 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
