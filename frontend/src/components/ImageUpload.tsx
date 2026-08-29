@@ -16,11 +16,18 @@ interface ImageUploadProps {
   hideUploadArea?: boolean;
 }
 
+const isHeic = (file: File): boolean => {
+  const name = file.name.toLowerCase();
+  return name.endsWith('.heic') || name.endsWith('.heif') ||
+    file.type === 'image/heic' || file.type === 'image/heif';
+};
+
 export default function ImageUpload({ onImagesSelect, onContextChange, disabled = false, selectedFiles = [], userContext = '', hideUploadArea = false }: ImageUploadProps) {
   const [images, setImages] = useState<ImageFile[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [context, setContext] = useState(userContext);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [brokenPreviews, setBrokenPreviews] = useState<Set<number>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // DEBUG: Log whether onContextChange prop is provided on mount
@@ -28,12 +35,18 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
     console.log('ImageUpload mounted. onContextChange prop:', typeof onContextChange, onContextChange ? 'PROVIDED' : 'NOT PROVIDED');
   }, []);
 
-  // Reset images when selectedFiles prop becomes empty
+  // Resync internal `images` state with the parent's `selectedFiles`. Today
+  // the only caller-driven change is clearing to empty (e.g. "Start Over"),
+  // detected via a content signature rather than just `.length` so a
+  // same-length-but-different-set reset wouldn't silently no-op.
   useEffect(() => {
-    if (selectedFiles.length === 0 && images.length > 0) {
+    const parentSignature = selectedFiles.map(f => `${f.name}:${f.size}`).join(',');
+    const localSignature = images.map(img => `${img.file.name}:${img.file.size}`).join(',');
+    if (selectedFiles.length === 0 && parentSignature !== localSignature) {
       setImages([]);
+      setBrokenPreviews(new Set());
     }
-  }, [selectedFiles.length, images.length]);
+  }, [selectedFiles, images]);
 
   const validateAndAddFiles = (newFiles: FileList | File[]) => {
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
@@ -50,9 +63,28 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
     }
 
     const validFiles: ImageFile[] = [];
+    // Tracks name+size of every file already added or accepted earlier in
+    // this same batch, so duplicates (re-added file, or the same file picked
+    // twice in one dialog) are caught before they're queued for preview.
+    const seenKeys = new Set(images.map(img => `${img.file.name}:${img.file.size}`));
     let hadError = false;
+    let expectedCount = 0;
 
     for (const file of filesArray) {
+      const key = `${file.name}:${file.size}`;
+
+      if (isHeic(file)) {
+        setValidationError(`"${file.name}" is a HEIC/HEIF photo, which isn't supported. Export it as JPEG or PNG (on iPhone: Settings > Camera > Formats > Most Compatible) and try again.`);
+        hadError = true;
+        continue;
+      }
+
+      if (seenKeys.has(key)) {
+        setValidationError(`"${file.name}" has already been added.`);
+        hadError = true;
+        continue;
+      }
+
       // Validate file type
       if (!allowedTypes.includes(file.type)) {
         setValidationError(`"${file.name}" is not a supported format. Use JPG, PNG, WebP, or GIF.`);
@@ -67,6 +99,9 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
         continue;
       }
 
+      seenKeys.add(key);
+      expectedCount++;
+
       // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -75,8 +110,8 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
           preview: reader.result as string,
         });
 
-        // When all files are processed, update state
-        if (validFiles.length === filesArray.length || validFiles.length + currentCount === maxImages) {
+        // When all accepted files are processed, update state
+        if (validFiles.length === expectedCount) {
           const updatedImages = [...images, ...validFiles];
           setImages(updatedImages);
           onImagesSelect(updatedImages.map(img => img.file));
@@ -129,6 +164,14 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
     const updatedImages = images.filter((_, i) => i !== index);
     setImages(updatedImages);
     onImagesSelect(updatedImages.map(img => img.file));
+    setBrokenPreviews(prev => {
+      const next = new Set<number>();
+      prev.forEach(i => {
+        if (i < index) next.add(i);
+        else if (i > index) next.add(i - 1);
+      });
+      return next;
+    });
   };
 
   const handleContextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -152,25 +195,31 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
           <div className="inline-block bg-gray-100 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-md mb-3">
             Preview
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="flex flex-wrap gap-2">
             {images.map((img, idx) => (
               <div key={idx} className="relative group">
-                <div className="w-full aspect-square bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
+                <div className="relative w-20 h-20 flex-shrink-0 bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
                   <img
                     src={img.preview}
                     alt={`Product ${idx + 1}`}
                     className="w-full h-full object-contain"
+                    onError={() => setBrokenPreviews(prev => new Set(prev).add(idx))}
                   />
+                  {brokenPreviews.has(idx) && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-red-50 text-red-600 text-[10px] text-center px-1 leading-tight">
+                      Couldn't preview — file may be corrupted
+                    </div>
+                  )}
                 </div>
                 {idx === 0 && (
-                  <div className="absolute top-3 left-3 bg-black text-white text-xs px-2 py-1 rounded font-medium">
+                  <div className="absolute top-1 left-1 bg-black text-white text-[10px] px-1.5 py-0.5 rounded font-medium">
                     Primary
                   </div>
                 )}
                 <button
                   onClick={() => removeImage(idx)}
                   disabled={disabled}
-                  className="absolute top-3 right-3 bg-white text-gray-700 rounded-full w-8 h-8 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-gray-100 disabled:opacity-50 font-bold text-lg"
+                  className="absolute top-1 right-1 bg-white text-gray-700 rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-gray-100 disabled:opacity-50 font-bold text-sm leading-none"
                   aria-label={`Remove image ${idx + 1}`}
                 >
                   ×

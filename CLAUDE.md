@@ -112,7 +112,7 @@ npx neon env pull  # writes DATABASE_URL etc. to .env.local
 ## Known Issues & Gotchas
 - `main.py` is very large (3,700+ lines) — may benefit from splitting into routers
 - `backend/services/ebay/listing.py` is 88 KB — complex multi-step pipeline
-- Claude analyzer timeout is 180s (extended for web search)
+- Claude analyzer timeout: 300s Anthropic SDK client timeout, 270s soft tool-loop breaker (`MAX_ANALYSIS_ELAPSED` in `claude_analyzer.py`), 600s gunicorn worker timeout, 540s (9 min) frontend fetch abort
 - CORS configured for: localhost, exzellerate.com, exzellerate.onrender.com
 - **Render free tier**: Service spins down after 15 min idle, ~30-60s cold start
 - **Vite env vars**: `VITE_*` vars are baked at BUILD time, not runtime. Must rebuild after changing them in Render dashboard.

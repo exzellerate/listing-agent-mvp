@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Platform, AnalysisResult } from '../types';
 import { analyzeImagesWithProgress, checkHealth, confirmAnalysis, createDraft, getDraft, APIError } from '../services/api';
 import ImageUpload from '../components/ImageUpload';
@@ -39,6 +39,17 @@ function UploadPage() {
   const [analysisProgress, setAnalysisProgress] = useState<number | undefined>(undefined);
   const [analysisMessage, setAnalysisMessage] = useState<string | undefined>(undefined);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Object URLs for the "Analyzed Images" preview gallery below. Computed
+  // once per selectedFiles change (not inline in JSX, which would create a
+  // new blob URL on every render) and revoked on cleanup to avoid leaking
+  // them for the lifetime of the tab.
+  const objectUrls = useMemo(() => selectedFiles.map(file => URL.createObjectURL(file)), [selectedFiles]);
+  useEffect(() => {
+    return () => {
+      objectUrls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [objectUrls]);
 
   // Check backend health on mount
   useEffect(() => {
@@ -478,12 +489,12 @@ function UploadPage() {
                 <div className="inline-block bg-blue-100 text-blue-700 text-xs font-medium px-3 py-1.5 rounded-md mb-3">
                   Analyzed Images
                 </div>
-                <div className="grid grid-cols-6 gap-2">
-                  {selectedFiles.map((file, idx) => (
+                <div className="flex flex-wrap gap-2">
+                  {selectedFiles.map((_file, idx) => (
                     <div key={idx} className="relative group">
-                      <div className="w-full aspect-square bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
+                      <div className="w-20 h-20 flex-shrink-0 bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
                         <img
-                          src={URL.createObjectURL(file)}
+                          src={objectUrls[idx]}
                           alt={`Product ${idx + 1}`}
                           className="w-full h-full object-contain"
                         />
@@ -505,10 +516,10 @@ function UploadPage() {
                 <div className="inline-block bg-blue-100 text-blue-700 text-xs font-medium px-3 py-1.5 rounded-md mb-3">
                   Product Images
                 </div>
-                <div className="grid grid-cols-6 gap-2">
+                <div className="flex flex-wrap gap-2">
                   {result.image_urls.map((url, idx) => (
                     <div key={idx} className="relative group">
-                      <div className="w-full aspect-square bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
+                      <div className="w-20 h-20 flex-shrink-0 bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
                         <img
                           src={url.startsWith('http') ? url : `${API_BASE_URL}${url}`}
                           alt={`Product ${idx + 1}`}
