@@ -478,10 +478,10 @@ function UploadPage() {
                 <div className="inline-block bg-blue-100 text-blue-700 text-xs font-medium px-3 py-1.5 rounded-md mb-3">
                   Analyzed Images
                 </div>
-                <div className="grid grid-cols-6 gap-2">
+                <div className="flex flex-wrap gap-2">
                   {selectedFiles.map((file, idx) => (
                     <div key={idx} className="relative group">
-                      <div className="w-full aspect-square bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
+                      <div className="w-20 h-20 flex-shrink-0 bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
                         <img
                           src={URL.createObjectURL(file)}
                           alt={`Product ${idx + 1}`}
@@ -505,10 +505,10 @@ function UploadPage() {
                 <div className="inline-block bg-blue-100 text-blue-700 text-xs font-medium px-3 py-1.5 rounded-md mb-3">
                   Product Images
                 </div>
-                <div className="grid grid-cols-6 gap-2">
+                <div className="flex flex-wrap gap-2">
                   {result.image_urls.map((url, idx) => (
                     <div key={idx} className="relative group">
-                      <div className="w-full aspect-square bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
+                      <div className="w-20 h-20 flex-shrink-0 bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
                         <img
                           src={url.startsWith('http') ? url : `${API_BASE_URL}${url}`}
                           alt={`Product ${idx + 1}`}

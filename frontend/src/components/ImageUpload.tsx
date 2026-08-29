@@ -152,10 +152,10 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
           <div className="inline-block bg-gray-100 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-md mb-3">
             Preview
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="flex flex-wrap gap-2">
             {images.map((img, idx) => (
               <div key={idx} className="relative group">
-                <div className="w-full aspect-square bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
+                <div className="w-20 h-20 flex-shrink-0 bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
                   <img
                     src={img.preview}
                     alt={`Product ${idx + 1}`}
@@ -163,14 +163,14 @@ export default function ImageUpload({ onImagesSelect, onContextChange, disabled 
                   />
                 </div>
                 {idx === 0 && (
-                  <div className="absolute top-3 left-3 bg-black text-white text-xs px-2 py-1 rounded font-medium">
+                  <div className="absolute top-1 left-1 bg-black text-white text-[10px] px-1.5 py-0.5 rounded font-medium">
                     Primary
                   </div>
                 )}
                 <button
                   onClick={() => removeImage(idx)}
                   disabled={disabled}
-                  className="absolute top-3 right-3 bg-white text-gray-700 rounded-full w-8 h-8 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-gray-100 disabled:opacity-50 font-bold text-lg"
+                  className="absolute top-1 right-1 bg-white text-gray-700 rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-gray-100 disabled:opacity-50 font-bold text-sm leading-none"
                   aria-label={`Remove image ${idx + 1}`}
                 >
                   ×
