@@ -1979,7 +1979,7 @@ class EbayListingService:
         ns = "urn:ebay:apis:eBLBaseComponents"
 
         while page <= total_pages:
-            url = "https://api.ebay.com/ws/api.dll"
+            url = "https://api.ebay.com/ws/api.dll" if self.environment == "PRODUCTION" else "https://api.sandbox.ebay.com/ws/api.dll"
             headers = {
                 "X-EBAY-API-SITEID": "0",
                 "X-EBAY-API-COMPATIBILITY-LEVEL": "967",

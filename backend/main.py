@@ -225,6 +225,30 @@ def cleanup_uploaded_images(saved_filenames: List[str]) -> None:
                 logger.warning(f"Failed to delete orphaned local image {filename}: {e}")
 
 
+def get_thumbnail_paths(draft, db: Session) -> Optional[List[str]]:
+    """Resolve a draft's displayable image URLs: filter out huge base64 data
+    URIs from the draft's own image_paths, and if none remain, backfill from
+    the linked ProductAnalysis. Shared by list_drafts and get_draft so both
+    endpoints agree on whether a draft "has" a thumbnail."""
+    from database_models import ProductAnalysis
+
+    paths = draft.image_paths
+    if paths:
+        filtered = [p for p in paths if not p.startswith("data:")]
+        if filtered:
+            return filtered
+    if draft.analysis_id:
+        analysis = db.query(ProductAnalysis).filter(
+            ProductAnalysis.id == draft.analysis_id
+        ).first()
+        if analysis:
+            if analysis.image_urls:
+                return analysis.image_urls if isinstance(analysis.image_urls, list) else [analysis.image_urls]
+            elif analysis.image_path:
+                return [analysis.image_path]
+    return None
+
+
 def log_request_status(request_id: str, status: str, error: Optional[Dict[str, Any]] = None) -> None:
     """
     Log request status to logs/request_status.jsonl for Performance Dashboard.
@@ -300,7 +324,7 @@ async def upload_images_to_ebay(local_image_urls: List[str], db: Session) -> Lis
         # Get eBay OAuth access token
         from services.ebay.oauth import EbayOAuthService
         oauth_service = EbayOAuthService(db)
-        access_token = oauth_service.get_access_token()
+        access_token = oauth_service.get_valid_token()
 
         if not access_token:
             logger.error("No eBay access token available - cannot upload images")
@@ -548,6 +572,12 @@ async def analyze_image(
         )
         raise HTTPException(status_code=500, detail=str(e))
 
+    # Tracks whether the ProductAnalysis row (and its image references) were
+    # already durably committed, so a later exception in this same try block
+    # (e.g. in post-commit logging) doesn't trigger cleanup of images that are
+    # now correctly referenced by a successfully-saved analysis.
+    analysis_committed = False
+
     try:
         # Get learning engine and analyzer instances
         from services.learning_engine import get_learning_engine
@@ -741,6 +771,7 @@ async def analyze_image(
         db.add(analysis)
         db.commit()
         db.refresh(analysis)
+        analysis_committed = True
 
         logger.info(f"Analysis complete for: {result.product_name} (confidence: {result.confidence_score}%)")
         logger.info(f"Stored analysis with ID: {analysis.id}")
@@ -795,10 +826,12 @@ async def analyze_image(
 
     except HTTPException:
         # Re-raise HTTPException (these are already logged above in validation)
-        cleanup_uploaded_images(saved_filenames)
+        if not analysis_committed:
+            cleanup_uploaded_images(saved_filenames)
         raise
     except ValueError as e:
-        cleanup_uploaded_images(saved_filenames)
+        if not analysis_committed:
+            cleanup_uploaded_images(saved_filenames)
         logger.error(f"[{request_id}] Configuration error: {str(e)}")
         log_request_status(
             request_id=request_id,
@@ -815,7 +848,8 @@ async def analyze_image(
             detail="API configuration error. Please check server configuration."
         )
     except Exception as e:
-        cleanup_uploaded_images(saved_filenames)
+        if not analysis_committed:
+            cleanup_uploaded_images(saved_filenames)
         logger.error(f"[{request_id}] Analysis failed: {str(e)}")
         db.rollback()
 
@@ -838,6 +872,10 @@ async def analyze_image(
             error_type = "overloaded_error"
             error_message = "AI service is overloaded. Try again in a few minutes."
             status_code = 503
+        elif "credit balance" in error_str or "purchase credits" in error_str:
+            error_type = "billing_error"
+            error_message = "AI analysis is unavailable: the Anthropic account backing this app is out of credits. Please contact support — retrying won't help until credits are added."
+            status_code = 402
         elif isinstance(e, (APIConnectionError, APIStatusError)):
             error_type = "api_error"
             error_message = "AI service error. Please try again."
@@ -938,6 +976,10 @@ async def analyze_image_stream(
     async def run_analysis():
         """Run the analysis in the background and put result/error into queue."""
         saved_filenames: List[str] = []
+        # Set once the ProductAnalysis row is durably committed, so the outer
+        # except block below doesn't clean up images that are now correctly
+        # referenced by a successfully-saved analysis.
+        analysis_committed = False
         try:
             progress_callback("validating", "Processing uploaded images...")
 
@@ -1091,6 +1133,7 @@ async def analyze_image_stream(
                 db.add(analysis_record)
                 db.commit()
                 db.refresh(analysis_record)
+                analysis_committed = True
                 result.analysis_id = analysis_record.id
                 logger.info(f"SSE analysis stored with ID: {analysis_record.id}")
             except Exception as db_err:
@@ -1101,7 +1144,8 @@ async def analyze_image_stream(
 
         except Exception as e:
             logger.error(f"[{request_id}] SSE analysis failed: {e}")
-            cleanup_uploaded_images(saved_filenames)
+            if not analysis_committed:
+                cleanup_uploaded_images(saved_filenames)
             from anthropic import APITimeoutError, RateLimitError, APIStatusError, APIConnectionError
             error_str = str(e).lower()
             error_code = 500
@@ -1122,6 +1166,9 @@ async def analyze_image_stream(
             elif isinstance(e, APIStatusError) and hasattr(e, 'status_code') and e.status_code == 529:
                 error_code = 503
                 error_msg = "AI service is overloaded. Try again in a few minutes."
+            elif "credit balance" in error_str or "purchase credits" in error_str:
+                error_code = 402
+                error_msg = "AI analysis is unavailable: the Anthropic account backing this app is out of credits. Please contact support — retrying won't help until credits are added."
             elif isinstance(e, (APIConnectionError, APIStatusError)):
                 error_code = 502
                 error_msg = "AI service error. Please try again."
@@ -2378,7 +2425,7 @@ async def get_ebay_listing(
             if listing_service.environment == "PRODUCTION":
                 ebay_url = f"https://www.ebay.com/itm/{listing.listing_id}"
             else:
-                ebay_url = f"https://sandbox.ebay.com/itm/{listing.listing_id}"
+                ebay_url = f"https://www.sandbox.ebay.com/itm/{listing.listing_id}"
 
         return {
             "id": listing.id,
@@ -3097,26 +3144,6 @@ async def list_drafts(
 
         drafts = query.order_by(DraftListing.updated_at.desc()).all()
 
-        def get_thumbnail_paths(draft):
-            """Get image URLs, filtering out base64 and backfilling from analysis."""
-            paths = draft.image_paths
-            if paths:
-                # Only keep URL paths, skip huge base64 data URIs
-                filtered = [p for p in paths if not p.startswith("data:")]
-                if filtered:
-                    return filtered
-            # Backfill from linked analysis if draft has no usable image paths
-            if draft.analysis_id:
-                analysis = db.query(ProductAnalysis).filter(
-                    ProductAnalysis.id == draft.analysis_id
-                ).first()
-                if analysis:
-                    if analysis.image_urls:
-                        return analysis.image_urls if isinstance(analysis.image_urls, list) else [analysis.image_urls]
-                    elif analysis.image_path:
-                        return [analysis.image_path]
-            return None
-
         return [
             DraftListingSummary(
                 id=draft.id,
@@ -3127,7 +3154,7 @@ async def list_drafts(
                 brand=draft.brand,
                 condition=draft.condition,
                 category=draft.category,
-                image_paths=get_thumbnail_paths(draft),
+                image_paths=get_thumbnail_paths(draft, db),
                 created_at=draft.created_at,
                 updated_at=draft.updated_at
             )
@@ -3214,7 +3241,7 @@ async def get_draft(
             model_number=draft.model_number,
             features=draft.features,
             keywords=draft.keywords,
-            image_paths=draft.image_paths,
+            image_paths=get_thumbnail_paths(draft, db),
             extra_data=extra_data,
             notes=draft.notes,
             created_at=draft.created_at,

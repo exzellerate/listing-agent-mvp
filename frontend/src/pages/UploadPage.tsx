@@ -424,6 +424,7 @@ function UploadPage() {
             400: { title: "Invalid request", body: "Check that your images are valid files (JPG, PNG, WebP, or GIF) and try again." },
             408: { title: "Analysis timed out", body: "Try uploading fewer images at once, or compress them to smaller file sizes." },
             413: { title: "Image too large", body: "Please reduce the file size to under 10MB per image." },
+            402: { title: "Billing issue", body: error.message || "The AI service is unavailable due to a billing issue on our end. Retrying won't help — please contact support." },
             429: { title: "Too many requests", body: "The AI service is rate-limited. Please wait a moment and try again." },
             500: { title: "Couldn't analyze image", body: "The image may be unclear, too dark, or not showing a physical product. Try a clearer photo." },
             502: { title: "Service error", body: "The AI service returned an error. Please try again." },
@@ -449,7 +450,7 @@ function UploadPage() {
                       <button onClick={retryHealthCheck} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors">
                         Retry Connection
                       </button>
-                    ) : selectedFiles.length > 0 && (
+                    ) : selectedFiles.length > 0 && error.statusCode !== 402 && (
                       <button onClick={handleAnalyze} disabled={loading} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                         Try Again
                       </button>

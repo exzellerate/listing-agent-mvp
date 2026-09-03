@@ -32,6 +32,28 @@ Cloudflare DNS (proxied CNAME) → Render load balancer → FastAPI (serves API 
 Cloudflare Tunnel → Node.js proxy (port 3001) → FastAPI (port 8000) + Vite dev server (port 5173)
 - `proxy-server.js` and `cloudflared` are no longer needed. Files kept for reference only.
 
+## Environments
+Two clean, separate environments — local dev never auto-deploys anywhere, production only updates when code is pushed to `master`.
+
+### Local dev
+- Fully local: `uvicorn` (port 8000) + `vite` (port 5173) on your machine, nothing deployed.
+- **Database**: SQLite (`backend/listing_agent.db`) — leave `DATABASE_URL` unset in `backend/.env`, `database.py` falls back automatically.
+- **eBay**: `EBAY_ENV=SANDBOX` with a separate Sandbox eBay app registration (own Client ID/Secret/RuName — see `backend/.env`'s commented backup section for the production pair). `EBAY_REDIRECT_URI=http://localhost:5173/ebay/callback` (matches Vite's dev port). Sandbox business policy IDs are separate from production's — fetch them from https://www.sandbox.ebay.com/sh/ovw if needed.
+- **Image storage**: a dedicated R2 **dev** bucket, separate from production's bucket and API token (see "Setting up the R2 dev bucket" below). If `R2_*` vars are left blank, falls back to local disk (`backend/uploads/`) automatically — fine for quick testing, images just won't survive a restart.
+- **Anthropic API key / Clerk**: shared with production (same key/instance) — not environment-split today.
+- `frontend/.env`'s `VITE_API_URL` defaults to `http://localhost:8000` for this reason.
+
+### Production
+- Render's `exzellerate` service, tracking the `master` branch only — pushing to `master` is the only way anything reaches production (`git push origin master`).
+- All secrets live in the Render dashboard (`render.yaml` marks them `sync: false`) — never in a committed file.
+- Neon PostgreSQL, production R2 bucket, production eBay app (`EBAY_ENV=PRODUCTION`).
+
+### Setting up the R2 dev bucket (one-time, manual — Cloudflare dashboard)
+1. R2 → **Create bucket** (e.g. `exzellerate-uploads-dev`).
+2. Bucket Settings → **Public Access** → enable the `r2.dev` subdomain (or attach a custom domain) — the code's fallback URL (used only when `R2_PUBLIC_URL` is blank) isn't a real public URL, so set this explicitly.
+3. R2 → **Manage API Tokens** → create a new token scoped to just this bucket (Object Read & Write) — keep it separate from production's token.
+4. Fill in `backend/.env`: `R2_ACCOUNT_ID` (same account as prod), `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY` (the new token), `R2_BUCKET_NAME`, `R2_PUBLIC_URL` (from step 2).
+
 ## Key Files
 | File | What It Does |
 |------|-------------|
@@ -123,6 +145,8 @@ npx neon env pull  # writes DATABASE_URL etc. to .env.local
 - **EbayCredentials.user_id**: Has `unique=True` constraint — one eBay account per Clerk user. This is intentional.
 
 ## Environment Variables
+This lists production's variable set (Render dashboard). For local dev's equivalents (Sandbox eBay, dev R2 bucket, SQLite), see "Environments" above and `backend/.env.example`.
+
 ### Backend (Render dashboard)
 - `ANTHROPIC_API_KEY`
 - `CLERK_SECRET_KEY`, `CLERK_ISSUER`
