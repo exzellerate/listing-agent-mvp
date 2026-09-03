@@ -324,7 +324,7 @@ async def upload_images_to_ebay(local_image_urls: List[str], db: Session) -> Lis
         # Get eBay OAuth access token
         from services.ebay.oauth import EbayOAuthService
         oauth_service = EbayOAuthService(db)
-        access_token = oauth_service.get_access_token()
+        access_token = oauth_service.get_valid_token()
 
         if not access_token:
             logger.error("No eBay access token available - cannot upload images")
@@ -2425,7 +2425,7 @@ async def get_ebay_listing(
             if listing_service.environment == "PRODUCTION":
                 ebay_url = f"https://www.ebay.com/itm/{listing.listing_id}"
             else:
-                ebay_url = f"https://sandbox.ebay.com/itm/{listing.listing_id}"
+                ebay_url = f"https://www.sandbox.ebay.com/itm/{listing.listing_id}"
 
         return {
             "id": listing.id,
