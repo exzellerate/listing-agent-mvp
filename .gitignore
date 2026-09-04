@@ -62,6 +62,7 @@ backend/test_data/
 backend/test_images/
 backend/activity*
 backend/test_data.numbers
+backend/ebay_test_cases.numbers
 
 # Screenshots
 Landingpage*.png
