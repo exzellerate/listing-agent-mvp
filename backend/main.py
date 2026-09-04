@@ -134,25 +134,56 @@ async def root():
 
 
 # Helper function to save uploaded images
-def save_uploaded_image(file_contents: bytes, original_filename: str) -> tuple[str, str]:
+_CONTENT_TYPE_TO_EXT = {
+    "image/jpeg": ".jpg", "image/png": ".png",
+    "image/webp": ".webp", "image/gif": ".gif",
+}
+_EXT_TO_CONTENT_TYPE = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif",
+}
+
+
+def save_uploaded_image(
+    file_contents: bytes,
+    original_filename: str,
+    unique_id: Optional[str] = None,
+    suffix: str = "",
+    content_type_override: Optional[str] = None,
+) -> tuple[str, str]:
     """
     Save uploaded image to R2 (if configured) or local disk.
 
     Args:
         file_contents: Binary image data
         original_filename: Original filename from upload
+        unique_id: Reuse a caller-provided id (e.g. so an original and its
+            thumbnail share a base name) instead of generating a new one.
+        suffix: Appended before the extension, e.g. "_thumb", so a thumbnail
+            derived from the same image doesn't collide with the original.
+        content_type_override: When file_contents was re-encoded to a
+            different format than original_filename's extension implies
+            (e.g. a resized thumbnail is always JPEG regardless of the
+            original file type), pass the actual content type here so the
+            saved extension and declared Content-Type match what's actually
+            in file_contents - a mismatch there produces a file whose bytes
+            don't match its declared/inferred format.
 
     Returns:
         Tuple of (saved_filename, image_url)
     """
-    # Get file extension
-    ext = Path(original_filename).suffix.lower()
-    if not ext:
-        ext = ".jpg"  # Default to jpg if no extension
+    # Get file extension - from the override's content type when the bytes
+    # were re-encoded, otherwise from the original filename.
+    if content_type_override:
+        ext = _CONTENT_TYPE_TO_EXT.get(content_type_override, ".jpg")
+    else:
+        ext = Path(original_filename).suffix.lower()
+        if not ext:
+            ext = ".jpg"  # Default to jpg if no extension
 
-    # Generate unique filename
-    unique_id = str(uuid.uuid4())
-    filename = f"{unique_id}{ext}"
+    # Generate (or reuse) unique filename
+    unique_id = unique_id or str(uuid.uuid4())
+    filename = f"{unique_id}{suffix}{ext}"
 
     # Try R2 first if configured
     try:
@@ -163,11 +194,7 @@ def save_uploaded_image(file_contents: bytes, original_filename: str) -> tuple[s
 
     if r2:
         try:
-            content_type_map = {
-                ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif",
-            }
-            content_type = content_type_map.get(ext, "image/jpeg")
+            content_type = content_type_override or _EXT_TO_CONTENT_TYPE.get(ext, "image/jpeg")
             r2.put_object(
                 Bucket=R2_BUCKET_NAME,
                 Key=filename,
@@ -225,18 +252,27 @@ def cleanup_uploaded_images(saved_filenames: List[str]) -> None:
                 logger.warning(f"Failed to delete orphaned local image {filename}: {e}")
 
 
-def get_thumbnail_paths(draft, db: Session) -> Optional[List[str]]:
-    """Resolve a draft's displayable image URLs: filter out huge base64 data
-    URIs from the draft's own image_paths, and if none remain, backfill from
-    the linked ProductAnalysis. Shared by list_drafts and get_draft so both
-    endpoints agree on whether a draft "has" a thumbnail."""
+def get_draft_image_urls(draft, db: Session) -> Optional[List[str]]:
+    """Resolve a draft's displayable (full-size) image URLs.
+
+    Priority: the draft's own `image_urls` (self-contained, set at save time)
+    first; then the legacy `image_paths` column (filtered of huge base64 data
+    URIs, for drafts saved before this field existed); then, only as a last
+    resort, backfill from the linked ProductAnalysis via analysis_id. Shared
+    by list_drafts and get_draft so both endpoints agree on a draft's images,
+    and this is also what get_draft returns to the frontend - so the drafts
+    list and the loaded-draft edit screen always show the same images."""
     from database_models import ProductAnalysis
 
-    paths = draft.image_paths
-    if paths:
-        filtered = [p for p in paths if not p.startswith("data:")]
+    if draft.image_urls:
+        return draft.image_urls if isinstance(draft.image_urls, list) else [draft.image_urls]
+
+    legacy_paths = draft.image_paths
+    if legacy_paths:
+        filtered = [p for p in legacy_paths if not p.startswith("data:")]
         if filtered:
             return filtered
+
     if draft.analysis_id:
         analysis = db.query(ProductAnalysis).filter(
             ProductAnalysis.id == draft.analysis_id
@@ -246,6 +282,25 @@ def get_thumbnail_paths(draft, db: Session) -> Optional[List[str]]:
                 return analysis.image_urls if isinstance(analysis.image_urls, list) else [analysis.image_urls]
             elif analysis.image_path:
                 return [analysis.image_path]
+    return None
+
+
+def get_draft_thumbnail_urls(draft, db: Session) -> Optional[List[str]]:
+    """Resolve a draft's small UI-thumbnail URLs, mirroring get_draft_image_urls'
+    priority: the draft's own thumbnail_urls first, then a backfill from the
+    linked ProductAnalysis. Returns None (not an empty list) when nothing is
+    available, so callers can fall back to the full-size images instead."""
+    from database_models import ProductAnalysis
+
+    if draft.thumbnail_urls:
+        return draft.thumbnail_urls if isinstance(draft.thumbnail_urls, list) else [draft.thumbnail_urls]
+
+    if draft.analysis_id:
+        analysis = db.query(ProductAnalysis).filter(
+            ProductAnalysis.id == draft.analysis_id
+        ).first()
+        if analysis and analysis.thumbnail_urls:
+            return analysis.thumbnail_urls if isinstance(analysis.thumbnail_urls, list) else [analysis.thumbnail_urls]
     return None
 
 
@@ -546,17 +601,33 @@ async def analyze_image(
 
     # All files validated — now save them and track filenames so they can be
     # cleaned up if analysis or the DB commit fails downstream.
+    from utils.image_resize import resize_for_analysis, generate_thumbnail
+
     images_data = []
+    analyzer_images_data = []
     image_hashes = []
     saved_filenames: List[str] = []
+    all_thumbnail_urls: List[str] = []
 
     try:
         for idx, (contents, content_type, filename, image_hash) in enumerate(validated_files):
-            saved_filename, local_image_url = save_uploaded_image(contents, filename)
+            unique_id = str(uuid.uuid4())
+            saved_filename, local_image_url = save_uploaded_image(contents, filename, unique_id=unique_id)
             saved_filenames.append(saved_filename)
             logger.info(f"Image {idx + 1} saved as: {saved_filename} -> {local_image_url}")
             images_data.append((contents, content_type, local_image_url))
             image_hashes.append(image_hash)
+
+            thumb_bytes, thumb_content_type = generate_thumbnail(contents, content_type)
+            thumb_filename, thumb_url = save_uploaded_image(
+                thumb_bytes, filename, unique_id=unique_id, suffix="_thumb",
+                content_type_override=thumb_content_type
+            )
+            saved_filenames.append(thumb_filename)
+            all_thumbnail_urls.append(thumb_url)
+
+            analysis_bytes, analysis_content_type = resize_for_analysis(contents, content_type)
+            analyzer_images_data.append((analysis_bytes, analysis_content_type))
     except ValueError as e:
         cleanup_uploaded_images(saved_filenames)
         logger.error(f"[{request_id}] Failed to save uploaded image: {e}")
@@ -635,7 +706,7 @@ async def analyze_image(
 
                 # Call AI to verify
                 result = await analyzer.analyze_images(
-                    images_data=images_data,
+                    images_data=analyzer_images_data,
                     platform=platform,
                     user_context=user_context,
                     request_id=request_id
@@ -651,7 +722,7 @@ async def analyze_image(
         if result is None:
             logger.info("No learned match found or low confidence - calling AI API")
             result = await analyzer.analyze_images(
-                images_data=images_data,
+                images_data=analyzer_images_data,
                 platform=platform,
                 user_context=user_context,
                 request_id=request_id
@@ -742,6 +813,7 @@ async def analyze_image(
             user_id=user.id,
             image_path=first_image_url,
             image_urls=all_image_urls,  # Store ALL uploaded image URLs
+            thumbnail_urls=all_thumbnail_urls,
             image_hash=image_hashes[0],  # Use first image hash as primary
             created_at=datetime.utcnow(),
             ai_product_name=result.product_name,
@@ -787,6 +859,7 @@ async def analyze_image(
         result_dict = result.dict()
         result_dict['analysis_id'] = analysis.id
         result_dict['image_urls'] = all_image_urls
+        result_dict['thumbnail_urls'] = all_thumbnail_urls
 
         # Log comprehensive analysis result including eBay data
         logger.info(f"[{request_id}] ═══════════════════ COMPLETE ANALYSIS RESULT ═══════════════════")
@@ -984,8 +1057,12 @@ async def analyze_image_stream(
             progress_callback("validating", "Processing uploaded images...")
 
             # Do image hashing and saving inside the background task
+            from utils.image_resize import resize_for_analysis, generate_thumbnail
+
             images_data = []
+            analyzer_images_data = []
             image_hashes = []
+            all_thumbnail_urls: List[str] = []
             for idx, (contents, content_type, filename) in enumerate(file_contents):
                 try:
                     image_hash = get_image_hash(contents)
@@ -996,9 +1073,21 @@ async def analyze_image_stream(
                         f"Failed to process image {idx + 1}: the file may be corrupted or not a valid image."
                     ) from e
 
-                saved_filename, local_image_url = save_uploaded_image(contents, filename)
+                unique_id = str(uuid.uuid4())
+                saved_filename, local_image_url = save_uploaded_image(contents, filename, unique_id=unique_id)
                 saved_filenames.append(saved_filename)
                 images_data.append((contents, content_type, local_image_url))
+
+                thumb_bytes, thumb_content_type = generate_thumbnail(contents, content_type)
+                thumb_filename, thumb_url = save_uploaded_image(
+                    thumb_bytes, filename, unique_id=unique_id, suffix="_thumb",
+                    content_type_override=thumb_content_type
+                )
+                saved_filenames.append(thumb_filename)
+                all_thumbnail_urls.append(thumb_url)
+
+                analysis_bytes, analysis_content_type = resize_for_analysis(contents, content_type)
+                analyzer_images_data.append((analysis_bytes, analysis_content_type))
 
             from services.learning_engine import get_learning_engine
             learning_engine = get_learning_engine(db)
@@ -1044,7 +1133,7 @@ async def analyze_image_stream(
                     source = AnalysisSource.HYBRID
                     learned_product_id = learned_product.id
                     result = await analyzer.analyze_images(
-                        images_data=images_data,
+                        images_data=analyzer_images_data,
                         platform=platform,
                         user_context=user_context,
                         request_id=request_id,
@@ -1053,7 +1142,7 @@ async def analyze_image_stream(
 
             if result is None:
                 result = await analyzer.analyze_images(
-                    images_data=images_data,
+                    images_data=analyzer_images_data,
                     platform=platform,
                     user_context=user_context,
                     request_id=request_id,
@@ -1100,13 +1189,14 @@ async def analyze_image_stream(
                     logger.warning(f"Category matching failed in SSE endpoint: {cat_err}")
 
             # Store in database (must match column names from main endpoint)
+            all_image_urls = [img[2] for img in images_data if len(img) > 2]
+            first_image_url = all_image_urls[0] if all_image_urls else None
             try:
-                all_image_urls = [img[2] for img in images_data if len(img) > 2]
-                first_image_url = all_image_urls[0] if all_image_urls else None
                 analysis_record = ProductAnalysis(
                     user_id=user.id,
                     image_path=first_image_url,
                     image_urls=all_image_urls,
+                    thumbnail_urls=all_thumbnail_urls,
                     image_hash=image_hashes[0] or "unknown",
                     created_at=datetime.utcnow(),
                     ai_product_name=result.product_name,
@@ -1139,6 +1229,12 @@ async def analyze_image_stream(
             except Exception as db_err:
                 logger.error(f"Failed to save analysis to DB in SSE endpoint: {db_err}")
                 db.rollback()
+
+            # image_urls/thumbnail_urls aren't set anywhere above for the SSE
+            # path (unlike analysis_id) - set them directly on the response
+            # object so they survive result.dict() below.
+            result.image_urls = all_image_urls
+            result.thumbnail_urls = all_thumbnail_urls
 
             await progress_queue.put({"stage": "complete", "data": result.dict()})
 
@@ -2273,6 +2369,7 @@ async def create_ebay_listing(
     shipping_width: Optional[float] = Form(None, description="Package width in inches"),
     shipping_height: Optional[float] = Form(None, description="Package height in inches"),
     item_specifics: Optional[str] = Form(None, description="JSON string of item specifics"),
+    image_urls: Optional[str] = Form(None, description="JSON array of image URLs to use for this listing"),
     db: Session = Depends(get_db),
     user: ClerkUser = Depends(require_auth)
 ):
@@ -2292,6 +2389,9 @@ async def create_ebay_listing(
         shipping_length: Package length in inches (for calculated shipping)
         shipping_width: Package width in inches (for calculated shipping)
         shipping_height: Package height in inches (for calculated shipping)
+        image_urls: JSON array of image URLs the client is displaying/wants used.
+            Preferred over the analysis_id-derived lookup so "what the wizard
+            showed you" and "what gets posted to eBay" are always the same data.
         user_id: User identifier
         db: Database session
 
@@ -2311,19 +2411,33 @@ async def create_ebay_listing(
         oauth_service = get_ebay_oauth_service(db)
         listing_service = get_ebay_listing_service(db, oauth_service)
 
-        # Get image URLs from analysis if available
-        image_urls = None
-        if analysis_id:
+        # Prefer client-supplied image_urls (what the wizard actually showed
+        # the user) over the analysis_id-derived lookup - fall back to the
+        # latter only for older clients that don't send this field yet.
+        resolved_image_urls = None
+        if image_urls:
+            try:
+                import json
+                parsed = json.loads(image_urls)
+                if isinstance(parsed, list) and parsed:
+                    resolved_image_urls = parsed
+                    logger.info(f"Using {len(resolved_image_urls)} client-supplied image URLs")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse image_urls JSON: {e}")
+
+        if not resolved_image_urls and analysis_id:
             from database_models import ProductAnalysis
             analysis = db.query(ProductAnalysis).filter(ProductAnalysis.id == analysis_id).first()
             if analysis:
                 # Prefer full image_urls array; fall back to single image_path
                 if analysis.image_urls:
-                    image_urls = analysis.image_urls
-                    logger.info(f"Using {len(image_urls)} images from analysis: {image_urls}")
+                    resolved_image_urls = analysis.image_urls
+                    logger.info(f"Using {len(resolved_image_urls)} images from analysis: {resolved_image_urls}")
                 elif analysis.image_path:
-                    image_urls = [analysis.image_path]
+                    resolved_image_urls = [analysis.image_path]
                     logger.info(f"Using single image from analysis: {analysis.image_path}")
+
+        image_urls = resolved_image_urls
 
         # Parse item_specifics JSON if provided
         parsed_item_specifics = None
@@ -3066,6 +3180,12 @@ async def create_draft(
             features=draft.features,
             keywords=draft.keywords,
             image_paths=draft.image_paths,
+            image_urls=draft.image_urls,
+            thumbnail_urls=draft.thumbnail_urls,
+            ebay_category=draft.ebay_category,
+            ebay_aspects=draft.ebay_aspects,
+            ebay_category_suggestions=draft.ebay_category_suggestions,
+            suggested_category_id=draft.suggested_category_id,
             extra_data=draft.extra_data,
             notes=draft.notes
         )
@@ -3094,6 +3214,12 @@ async def create_draft(
             features=db_draft.features,
             keywords=db_draft.keywords,
             image_paths=db_draft.image_paths,
+            image_urls=db_draft.image_urls,
+            thumbnail_urls=db_draft.thumbnail_urls,
+            ebay_category=db_draft.ebay_category,
+            ebay_aspects=db_draft.ebay_aspects,
+            ebay_category_suggestions=db_draft.ebay_category_suggestions,
+            suggested_category_id=db_draft.suggested_category_id,
             extra_data=db_draft.extra_data,
             notes=db_draft.notes,
             created_at=db_draft.created_at,
@@ -3154,7 +3280,8 @@ async def list_drafts(
                 brand=draft.brand,
                 condition=draft.condition,
                 category=draft.category,
-                image_paths=get_thumbnail_paths(draft, db),
+                image_paths=get_draft_image_urls(draft, db),
+                thumbnail_urls=get_draft_thumbnail_urls(draft, db),
                 created_at=draft.created_at,
                 updated_at=draft.updated_at
             )
@@ -3210,11 +3337,26 @@ async def get_draft(
                 detail=f"Draft {draft_id} not found"
             )
 
-        # Enrich extra_data with ProductAnalysis fields if available
+        # A draft now owns its eBay category/aspects/confidence directly (set at
+        # save time - see create_draft/update_draft). Only drafts saved before
+        # this migration lack these columns; for those, fall back to re-deriving
+        # from the live ProductAnalysis row so old drafts don't regress to empty.
         extra_data = dict(draft.extra_data) if draft.extra_data else {}
-        if draft.analysis_id:
+        ebay_category = draft.ebay_category
+        ebay_aspects = draft.ebay_aspects
+        ebay_category_suggestions = draft.ebay_category_suggestions
+        suggested_category_id = draft.suggested_category_id
+        needs_legacy_fallback = not (ebay_category or ebay_aspects or suggested_category_id)
+
+        if needs_legacy_fallback and draft.analysis_id:
             analysis = db.query(ProductAnalysis).filter(ProductAnalysis.id == draft.analysis_id).first()
             if analysis:
+                ebay_category = ebay_category or analysis.ebay_category
+                ebay_aspects = ebay_aspects or analysis.ebay_aspects
+                ebay_category_suggestions = ebay_category_suggestions or analysis.ebay_category_suggestions
+                suggested_category_id = suggested_category_id or analysis.suggested_category_id
+                # Kept for backward compatibility with any frontend still reading
+                # extra_data._analysis directly; new code should use the top-level fields above.
                 extra_data["_analysis"] = {
                     "image_urls": analysis.image_urls or ([analysis.image_path] if analysis.image_path else []),
                     "ebay_category": analysis.ebay_category,
@@ -3241,7 +3383,13 @@ async def get_draft(
             model_number=draft.model_number,
             features=draft.features,
             keywords=draft.keywords,
-            image_paths=get_thumbnail_paths(draft, db),
+            image_paths=get_draft_image_urls(draft, db),
+            image_urls=get_draft_image_urls(draft, db),
+            thumbnail_urls=get_draft_thumbnail_urls(draft, db),
+            ebay_category=ebay_category,
+            ebay_aspects=ebay_aspects,
+            ebay_category_suggestions=ebay_category_suggestions,
+            suggested_category_id=suggested_category_id,
             extra_data=extra_data,
             notes=draft.notes,
             created_at=draft.created_at,
@@ -3301,8 +3449,16 @@ async def update_draft(
                 detail=f"Draft {draft_id} not found"
             )
 
-        # Update fields if provided
+        # Update fields if provided. extra_data is a JSON column, so a blind
+        # setattr would replace it wholesale on any partial update - merge
+        # onto the existing dict instead so other keys (e.g. a legacy
+        # `_analysis` blob) survive a partial update that only touches
+        # specific extra_data keys.
         update_data = updates.model_dump(exclude_unset=True)
+        if "extra_data" in update_data and update_data["extra_data"] is not None:
+            merged = dict(draft.extra_data or {})
+            merged.update(update_data["extra_data"])
+            update_data["extra_data"] = merged
         for field, value in update_data.items():
             setattr(draft, field, value)
 
@@ -3329,6 +3485,12 @@ async def update_draft(
             features=draft.features,
             keywords=draft.keywords,
             image_paths=draft.image_paths,
+            image_urls=draft.image_urls,
+            thumbnail_urls=draft.thumbnail_urls,
+            ebay_category=draft.ebay_category,
+            ebay_aspects=draft.ebay_aspects,
+            ebay_category_suggestions=draft.ebay_category_suggestions,
+            suggested_category_id=draft.suggested_category_id,
             extra_data=draft.extra_data,
             notes=draft.notes,
             created_at=draft.created_at,

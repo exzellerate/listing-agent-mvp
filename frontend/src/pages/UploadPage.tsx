@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Platform, AnalysisResult } from '../types';
-import { analyzeImagesWithProgress, checkHealth, confirmAnalysis, createDraft, getDraft, APIError } from '../services/api';
+import { ImageIcon } from 'lucide-react';
+import { Platform, AnalysisResult, EbayCategory, CreateDraftRequest } from '../types';
+import { analyzeImagesWithProgress, checkHealth, confirmAnalysis, createDraft, updateDraft, getDraft, APIError } from '../services/api';
 import ImageUpload from '../components/ImageUpload';
 import LoadingState from '../components/LoadingState';
 import ResultsForm from '../components/ResultsForm';
@@ -29,11 +30,27 @@ function UploadPage() {
   const [selectedPrice, setSelectedPrice] = useState<number | undefined>(undefined);
   const [editedAspects, setEditedAspects] = useState<Record<string, string | string[]>>({});
   const [editedAttributes, setEditedAttributes] = useState<Record<string, any>>({});
+  // Edits made in ResultsForm/CategoryAspectsSection that need to reach both
+  // "Save as Draft"/"Save Changes" and the eBay wizard - previously these
+  // fields had no path back to UploadPage at all, so edits were silently
+  // discarded on save.
+  const [editedTitle, setEditedTitle] = useState<string>('');
+  const [editedDescription, setEditedDescription] = useState<string>('');
+  const [editedCategory, setEditedCategory] = useState<string>('');
+  const [editedCondition, setEditedCondition] = useState<string>('');
+  const [editedEbayCategory, setEditedEbayCategory] = useState<EbayCategory | undefined>(undefined);
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
   const [correctionAction] = useState<'edited' | 'rejected'>('edited');
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftSaveStatus, setDraftSaveStatus] = useState<'success' | 'error' | null>(null);
   const [loadedFromDraft, setLoadedFromDraft] = useState(false);
+  // Retained so a loaded draft can be updated in place (PUT) instead of only
+  // ever being creatable (POST) - previously parsed from the URL and discarded.
+  const [draftId, setDraftId] = useState<number | null>(null);
+  // Tracks which loaded-draft image indices failed to load, so a broken/
+  // expired URL shows a placeholder instead of a raw browser broken-image
+  // icon (matching the pattern already used on the drafts list page).
+  const [brokenImageIndices, setBrokenImageIndices] = useState<Set<number>>(new Set());
   const [showStartOverConfirmation, setShowStartOverConfirmation] = useState(false);
   const [analysisStage, setAnalysisStage] = useState<string | undefined>(undefined);
   const [analysisProgress, setAnalysisProgress] = useState<number | undefined>(undefined);
@@ -67,11 +84,33 @@ function UploadPage() {
     checkBackendHealth();
   }, []);
 
-  // Reset edited item specifics/attributes whenever a new analysis result arrives
+  // Reset all edited fields whenever a new analysis result or loaded draft
+  // arrives, so edits from a previous result never leak into a new one.
   useEffect(() => {
     setEditedAspects(result?.ebay_aspects || {});
     setEditedAttributes(result?.product_attributes || {});
+    setEditedTitle(result?.suggested_title || '');
+    setEditedDescription(result?.suggested_description || '');
+    setEditedCategory(result?.category || '');
+    setEditedCondition(result?.condition || '');
+    setEditedEbayCategory(result?.ebay_category);
+    setBrokenImageIndices(new Set());
   }, [result]);
+
+  // Assembles "what the user currently has" from all edited state - the
+  // single source of truth used by both save-as-draft/update-draft and the
+  // eBay wizard, so they never disagree about what's been edited.
+  const getCurrentDraftFields = () => ({
+    title: editedTitle || result?.suggested_title || '',
+    description: editedDescription || result?.suggested_description || '',
+    category: editedCategory || result?.category || undefined,
+    condition: editedCondition || result?.condition,
+    price: selectedPrice,
+    ebay_category: editedEbayCategory || result?.ebay_category,
+    ebay_aspects: Object.keys(editedAspects).length > 0 ? editedAspects : result?.ebay_aspects,
+    ebay_category_suggestions: result?.ebay_category_suggestions,
+    suggested_category_id: editedEbayCategory?.category_id || result?.suggested_category_id,
+  });
 
   // Load draft if draftId is provided in URL
   useEffect(() => {
@@ -84,10 +123,15 @@ function UploadPage() {
         try {
           const draft = await getDraft(parseInt(draftId, 10));
 
-          // Extract enriched analysis data from backend (if available)
+          // Convert draft to AnalysisResult format. The draft now owns its
+          // own image_urls/ebay_category/ebay_aspects (set at save time) -
+          // read those directly rather than re-deriving from a live
+          // ProductAnalysis row, so a reload shows exactly what was saved
+          // instead of always reverting to the original AI output. Old
+          // drafts saved before this migration still get backend-side
+          // fallback via extra_data._analysis (kept for compatibility).
           const analysisExtra = draft.extra_data?._analysis;
 
-          // Convert draft to AnalysisResult format
           const analysisResult: AnalysisResult = {
             product_name: draft.product_name || '',
             brand: draft.brand,
@@ -111,11 +155,12 @@ function UploadPage() {
             ambiguities: [],
             reasoning: null,
             analysis_id: draft.analysis_id || undefined,
-            image_urls: analysisExtra?.image_urls || draft.image_paths || [],
-            ebay_category: analysisExtra?.ebay_category || undefined,
-            ebay_aspects: analysisExtra?.ebay_aspects || undefined,
-            ebay_category_suggestions: analysisExtra?.ebay_category_suggestions || undefined,
-            suggested_category_id: analysisExtra?.suggested_category_id || undefined,
+            image_urls: draft.image_urls || draft.image_paths || analysisExtra?.image_urls || [],
+            thumbnail_urls: draft.thumbnail_urls || undefined,
+            ebay_category: draft.ebay_category || analysisExtra?.ebay_category || undefined,
+            ebay_aspects: draft.ebay_aspects || analysisExtra?.ebay_aspects || undefined,
+            ebay_category_suggestions: draft.ebay_category_suggestions || analysisExtra?.ebay_category_suggestions || undefined,
+            suggested_category_id: draft.suggested_category_id || analysisExtra?.suggested_category_id || undefined,
           };
 
           setResult(analysisResult);
@@ -124,6 +169,7 @@ function UploadPage() {
             setSelectedPrice(draft.price);
           }
           setLoadedFromDraft(true);
+          setDraftId(draft.id);
 
           // Clear the URL parameter
           window.history.replaceState({}, '', '/upload');
@@ -325,6 +371,38 @@ function UploadPage() {
     }
   };
 
+  // Shared payload builder for both create and update - reads from the
+  // edited-fields state (getCurrentDraftFields) rather than the original
+  // result.* AI output, so user edits actually get persisted.
+  const buildDraftPayload = (): CreateDraftRequest => {
+    const current = getCurrentDraftFields();
+    // Use server-hosted image URLs from analysis (not base64 data URIs)
+    const imageUrls = result?.image_urls || [];
+
+    return {
+      analysis_id: result?.analysis_id,
+      title: current.title,
+      description: current.description,
+      price: current.price || undefined,
+      platform: platform,
+      product_name: result?.product_name,
+      brand: result?.brand ?? undefined,
+      category: current.category,
+      condition: current.condition,
+      color: result?.color ?? undefined,
+      material: result?.material ?? undefined,
+      model_number: result?.model_number ?? undefined,
+      features: result?.key_features,
+      image_paths: imageUrls,
+      image_urls: imageUrls,
+      thumbnail_urls: result?.thumbnail_urls,
+      ebay_category: current.ebay_category,
+      ebay_aspects: current.ebay_aspects,
+      ebay_category_suggestions: current.ebay_category_suggestions,
+      suggested_category_id: current.suggested_category_id,
+    };
+  };
+
   const handleSaveAsDraft = async () => {
     if (!result) {
       console.error('No analysis result to save');
@@ -333,30 +411,31 @@ function UploadPage() {
 
     setSavingDraft(true);
     try {
-      // Use server-hosted image URLs from analysis (not base64 data URIs)
-      const imagePaths = result.image_urls || [];
-
-      await createDraft({
-        analysis_id: result.analysis_id,
-        title: result.suggested_title,
-        description: result.suggested_description,
-        price: selectedPrice || undefined,
-        platform: platform,
-        product_name: result.product_name,
-        brand: result.brand ?? undefined,
-        category: result.category ?? undefined,
-        condition: result.condition,
-        color: result.color ?? undefined,
-        material: result.material ?? undefined,
-        model_number: result.model_number ?? undefined,
-        features: result.key_features,
-        image_paths: imagePaths,
-      });
-
+      const created = await createDraft(buildDraftPayload());
+      setDraftId(created.id);
       setDraftSaveStatus('success');
       setTimeout(() => setDraftSaveStatus(null), 4000);
     } catch (err) {
       console.error('Failed to save draft:', err);
+      setDraftSaveStatus('error');
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const handleUpdateDraft = async () => {
+    if (!result || !draftId) {
+      console.error('No loaded draft to update');
+      return;
+    }
+
+    setSavingDraft(true);
+    try {
+      await updateDraft(draftId, buildDraftPayload());
+      setDraftSaveStatus('success');
+      setTimeout(() => setDraftSaveStatus(null), 4000);
+    } catch (err) {
+      console.error('Failed to update draft:', err);
       setDraftSaveStatus('error');
     } finally {
       setSavingDraft(false);
@@ -511,29 +590,40 @@ function UploadPage() {
               </div>
             )}
 
-            {/* Draft Images Section - Show server-hosted images from analysis */}
+            {/* Draft Images Section - Show server-hosted images from the draft.
+                Prefers thumbnail_urls (fast-loading) with the full-size
+                image_urls entry as the fallback for that same index. */}
             {loadedFromDraft && result.image_urls && result.image_urls.length > 0 && (
               <div>
                 <div className="inline-block bg-blue-100 text-blue-700 text-xs font-medium px-3 py-1.5 rounded-md mb-3">
                   Product Images
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {result.image_urls.map((url, idx) => (
-                    <div key={idx} className="relative group">
-                      <div className="w-20 h-20 flex-shrink-0 bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden">
-                        <img
-                          src={url.startsWith('http') ? url : `${API_BASE_URL}${url}`}
-                          alt={`Product ${idx + 1}`}
-                          className="w-full h-full object-contain"
-                        />
-                      </div>
-                      {idx === 0 && (
-                        <div className="absolute top-1 left-1 bg-black text-white text-[10px] px-1.5 py-0.5 rounded font-medium">
-                          Primary
+                  {result.image_urls.map((url, idx) => {
+                    const displayUrl = result.thumbnail_urls?.[idx] || url;
+                    const isBroken = brokenImageIndices.has(idx);
+                    return (
+                      <div key={idx} className="relative group">
+                        <div className="w-20 h-20 flex-shrink-0 bg-gray-50 rounded-lg border-2 border-gray-200 overflow-hidden flex items-center justify-center">
+                          {isBroken ? (
+                            <ImageIcon className="w-6 h-6 text-gray-300" />
+                          ) : (
+                            <img
+                              src={displayUrl.startsWith('http') ? displayUrl : `${API_BASE_URL}${displayUrl}`}
+                              alt={`Product ${idx + 1}`}
+                              className="w-full h-full object-contain"
+                              onError={() => setBrokenImageIndices(prev => new Set(prev).add(idx))}
+                            />
+                          )}
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        {idx === 0 && (
+                          <div className="absolute top-1 left-1 bg-black text-white text-[10px] px-1.5 py-0.5 rounded font-medium">
+                            Primary
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -564,74 +654,74 @@ function UploadPage() {
               </div>
             )}
 
-            {/* Only show these sections when NOT loaded from draft */}
-            {!loadedFromDraft && (
-              <>
-                {/* Action Buttons */}
-                <div className="flex justify-center gap-4">
-                  {/* Start Over Button */}
-                  <button
-                    onClick={handleStartOverWithConfirmation}
-                    className="px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-semibold text-gray-700 transition-all duration-300 hover:scale-105 shadow-md flex items-center gap-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Start Over
-                  </button>
+            {/* Action Buttons */}
+            <div className="flex justify-center gap-4">
+              {/* Start Over Button - only for a fresh (not loaded-from-draft) analysis */}
+              {!loadedFromDraft && (
+                <button
+                  onClick={handleStartOverWithConfirmation}
+                  className="px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-semibold text-gray-700 transition-all duration-300 hover:scale-105 shadow-md flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Start Over
+                </button>
+              )}
 
-                  {/* Save as Draft Button */}
-                  <button
-                    onClick={handleSaveAsDraft}
-                    disabled={savingDraft}
-                    className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl font-bold transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
-                  >
-                    {savingDraft ? (
-                      <>
-                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                        </svg>
-                        Save as Draft
-                      </>
-                    )}
+              {/* Save as Draft / Save Changes Button - loaded drafts update the
+                  existing row (PUT) instead of creating a new one; previously
+                  this button was hidden entirely once a draft was loaded, so
+                  there was no way to persist edits back to it. */}
+              <button
+                onClick={loadedFromDraft ? handleUpdateDraft : handleSaveAsDraft}
+                disabled={savingDraft}
+                className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl font-bold transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+              >
+                {savingDraft ? (
+                  <>
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                    </svg>
+                    {loadedFromDraft ? 'Save Changes' : 'Save as Draft'}
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Draft Save Feedback */}
+            {draftSaveStatus && (
+              <div className={`mt-3 px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
+                draftSaveStatus === 'success'
+                  ? 'bg-green-50 border border-green-200 text-green-800'
+                  : 'bg-red-50 border border-red-200 text-red-800'
+              }`}>
+                <span>
+                  {draftSaveStatus === 'success'
+                    ? (loadedFromDraft ? 'Changes saved!' : 'Draft saved! View it from the Drafts page.')
+                    : (loadedFromDraft ? 'Failed to save changes.' : 'Failed to save draft.')}
+                </span>
+                <div className="flex items-center gap-2">
+                  {draftSaveStatus === 'error' && (
+                    <button onClick={loadedFromDraft ? handleUpdateDraft : handleSaveAsDraft} className="text-red-600 hover:text-red-800 font-semibold underline">
+                      Retry
+                    </button>
+                  )}
+                  <button onClick={() => setDraftSaveStatus(null)} className="text-gray-400 hover:text-gray-600">
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
                   </button>
                 </div>
-
-                {/* Draft Save Feedback */}
-                {draftSaveStatus && (
-                  <div className={`mt-3 px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
-                    draftSaveStatus === 'success'
-                      ? 'bg-green-50 border border-green-200 text-green-800'
-                      : 'bg-red-50 border border-red-200 text-red-800'
-                  }`}>
-                    <span>
-                      {draftSaveStatus === 'success'
-                        ? 'Draft saved! View it from the Drafts page.'
-                        : 'Failed to save draft.'}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {draftSaveStatus === 'error' && (
-                        <button onClick={handleSaveAsDraft} className="text-red-600 hover:text-red-800 font-semibold underline">
-                          Retry
-                        </button>
-                      )}
-                      <button onClick={() => setDraftSaveStatus(null)} className="text-gray-400 hover:text-gray-600">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </>
+              </div>
             )}
 
             {/* Show Generated Listing - always visible */}
@@ -643,8 +733,11 @@ function UploadPage() {
                 result={result}
                 price={selectedPrice}
                 onPriceChange={handlePriceSelected}
-                onAspectsChange={setEditedAspects}
                 onAttributesChange={setEditedAttributes}
+                onTitleChange={setEditedTitle}
+                onDescriptionChange={setEditedDescription}
+                onCategoryChange={setEditedCategory}
+                onConditionChange={setEditedCondition}
               />
             </div>
 
@@ -654,7 +747,11 @@ function UploadPage() {
                 <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-6">
                   eBay Category & Item Specifics
                 </h2>
-                <CategoryAspectsSection result={result} />
+                <CategoryAspectsSection
+                  result={result}
+                  onCategoryChange={setEditedEbayCategory}
+                  onAspectsChange={setEditedAspects}
+                />
               </div>
             )}
 
@@ -684,7 +781,7 @@ function UploadPage() {
                       <div>
                         <h4 className="font-bold text-yellow-900">Note: Images from Draft</h4>
                         <p className="text-sm text-yellow-800 mt-1">
-                          Original images from this draft are not available. You can upload new images in the eBay listing wizard if needed.
+                          The original images for this draft are no longer available, so this listing can't be published to eBay without images. Go back and start a fresh analysis with new photos instead.
                         </p>
                       </div>
                     </div>
@@ -697,6 +794,10 @@ function UploadPage() {
                   imageFiles={loadedFromDraft ? [] : selectedFiles}
                   imageUrls={loadedFromDraft ? (result.image_urls || []) : []}
                   editedItemSpecifics={getMergedItemSpecifics()}
+                  editedTitle={editedTitle}
+                  editedDescription={editedDescription}
+                  editedCondition={editedCondition}
+                  editedEbayCategory={editedEbayCategory}
                 />
               </>
             )}

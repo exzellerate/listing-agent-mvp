@@ -80,6 +80,7 @@ class ProductAnalysis(Base):
     # Image identification
     image_path = Column(String(512), nullable=True, comment="Primary image URL (first image)")
     image_urls = Column(JSON, nullable=True, comment="JSON array of all uploaded image URLs")
+    thumbnail_urls = Column(JSON, nullable=True, comment="JSON array of small UI-thumbnail URLs, parallel to image_urls")
     image_hash = Column(String(64), nullable=False, index=True, comment="Perceptual hash (dhash) for similarity matching")
 
     # Timestamps
@@ -429,7 +430,13 @@ class DraftListing(Base):
     # Additional data
     features = Column(JSON, nullable=True, comment="JSON array of features")
     keywords = Column(JSON, nullable=True, comment="JSON array of keywords")
-    image_paths = Column(JSON, nullable=True, comment="JSON array of local image paths")
+    image_paths = Column(JSON, nullable=True, comment="DEPRECATED legacy field - JSON array of local image paths or data URIs; use image_urls instead")
+    image_urls = Column(JSON, nullable=True, comment="JSON array of the draft's own persistent image URLs (R2/local)")
+    thumbnail_urls = Column(JSON, nullable=True, comment="JSON array of small UI-thumbnail URLs, parallel to image_urls")
+    ebay_category = Column(JSON, nullable=True, comment="JSON object with eBay category details (category_id, category_name, category_path, etc.)")
+    ebay_aspects = Column(JSON, nullable=True, comment="JSON object with eBay item specifics/aspects {aspect_name: value}")
+    ebay_category_suggestions = Column(JSON, nullable=True, comment="JSON array of category recommendations")
+    suggested_category_id = Column(String(128), nullable=True, comment="eBay category ID from Taxonomy API")
     extra_data = Column(JSON, nullable=True, comment="Additional platform-specific metadata")
 
     # User notes

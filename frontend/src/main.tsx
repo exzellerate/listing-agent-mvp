@@ -2,7 +2,6 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ClerkProvider, SignIn, SignUp, UserProfile } from '@clerk/clerk-react'
 import './index.css'
-import App from './App.tsx'
 import UploadPage from './pages/UploadPage.tsx'
 import ListingsPage from './pages/ListingsPage.tsx'
 import AnalyticsPage from './pages/AnalyticsPage.tsx'
@@ -49,7 +48,6 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/feedback" element={<FeedbackPage />} />
             <Route path="/profile/*" element={<UserProfile routing="path" path="/profile" />} />
             <Route path="/ebay/callback" element={<EbayCallback />} />
-            <Route path="/old" element={<App />} />
           </Route>
         </Routes>
       </BrowserRouter>

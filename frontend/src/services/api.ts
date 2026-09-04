@@ -1,4 +1,4 @@
-import { AnalysisResult, Platform, PricingData, TestBatchResponse, ConfirmAnalysisRequest, ConfirmAnalysisResponse, LearningStats, CreateDraftRequest, DraftListing, DraftListingSummary, ListingsResponse, SyncResponse, CategoryAspectRequest, CategoryAspectResponse, CategoryRecommendation } from '../types';
+import { AnalysisResult, Platform, PricingData, TestBatchResponse, ConfirmAnalysisRequest, ConfirmAnalysisResponse, LearningStats, CreateDraftRequest, UpdateDraftRequest, DraftListing, DraftListingSummary, ListingsResponse, SyncResponse, CategoryAspectRequest, CategoryAspectResponse, CategoryRecommendation } from '../types';
 import { MAX_IMAGES } from '../constants';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -733,6 +733,37 @@ export async function listDrafts(platform?: Platform): Promise<DraftListingSumma
   }
 }
 
+export async function updateDraft(draftId: number, updates: UpdateDraftRequest): Promise<DraftListing> {
+  try {
+    const headers = await createHeaders('application/json');
+    const response = await fetch(`${API_BASE_URL}/api/drafts/${draftId}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(updates),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.detail || `Failed to update draft ${draftId}`,
+        response.status,
+        errorData.detail
+      );
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+
+    throw new APIError(
+      `Failed to update draft: ${error instanceof Error ? error.message : "Unknown error"}`,
+      500
+    );
+  }
+}
+
 export async function getDraft(draftId: number): Promise<DraftListing> {
   try {
     const authHeaders = await getAuthHeaders();
@@ -785,6 +816,58 @@ export async function deleteDraft(draftId: number): Promise<void> {
 
     throw new APIError(
       `Failed to delete draft: ${error instanceof Error ? error.message : "Unknown error"}`,
+      500
+    );
+  }
+}
+
+
+// ============================================================================
+// EBAY LISTING CREATION API
+// ============================================================================
+
+export interface CreateEbayListingResult {
+  success: boolean;
+  listing_id: number;
+  sku: string;
+  status: string;
+  message: string;
+}
+
+/**
+ * Submit a FormData payload to create an eBay listing. Callers (the listing
+ * wizard) build the FormData with all the multipart fields the backend
+ * expects; this just adds auth and does the fetch/error handling, matching
+ * every other API call here - previously this request was sent directly
+ * from EbayListingWizard with no Authorization header at all, which would
+ * fail against the backend's enforced auth.
+ */
+export async function createEbayListing(formData: FormData): Promise<CreateEbayListingResult> {
+  try {
+    const authHeaders = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/api/ebay/listings/create`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.detail || 'Failed to create listing',
+        response.status,
+        errorData.detail
+      );
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+
+    throw new APIError(
+      `Failed to create listing: ${error instanceof Error ? error.message : 'Unknown error'}`,
       500
     );
   }
@@ -1092,3 +1175,38 @@ export async function getCategoryRecommendations(
   }
 }
 
+export interface EbayCategoryItemSpecific {
+  name: string;
+  cardinality: 'SINGLE' | 'MULTI';
+  usage: 'REQUIRED' | 'RECOMMENDED' | 'OPTIONAL';
+  values?: string[];
+  max_values?: number;
+  constraint?: 'SELECTION_ONLY' | 'FREE_TEXT';
+}
+
+/**
+ * Get item specifics (required/recommended/optional aspects) for an eBay
+ * category. This endpoint enforces auth like every other backend route -
+ * a plain unauthenticated fetch() here would always 401.
+ */
+export async function getCategoryItemSpecifics(
+  categoryId: string
+): Promise<EbayCategoryItemSpecific[]> {
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(
+    `${API_BASE_URL}/api/ebay/categories/${categoryId}/item-specifics`,
+    { headers: authHeaders }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new APIError(
+      errorData.detail || 'Failed to fetch item specifics',
+      response.status,
+      errorData.detail
+    );
+  }
+
+  const data = await response.json();
+  return data.item_specifics || [];
+}

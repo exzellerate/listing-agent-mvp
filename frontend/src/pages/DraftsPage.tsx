@@ -190,15 +190,19 @@ export default function DraftsPage() {
                   const ready = isDraftReady(draft);
                   const imageCount = draft.image_paths?.length || 0;
                   const hasWorkingThumbnail = imageCount > 0 && !brokenThumbnails.has(draft.id);
+                  // Prefer the small thumbnail for fast list loading; fall
+                  // back to the full-size image for drafts saved before
+                  // thumbnails existed.
+                  const displayImage = draft.thumbnail_urls?.[0] || draft.image_paths?.[0];
 
                   return (
                     <tr key={draft.id} className="hover:bg-gray-50">
                       {/* Image with count overlay */}
                       <td className="px-4 py-4 whitespace-nowrap">
-                        {hasWorkingThumbnail ? (
+                        {hasWorkingThumbnail && displayImage ? (
                           <div className="relative w-12 h-12">
                             <img
-                              src={draft.image_paths![0].startsWith('http') ? draft.image_paths![0] : `${API_BASE_URL}${draft.image_paths![0]}`}
+                              src={displayImage.startsWith('http') ? displayImage : `${API_BASE_URL}${displayImage}`}
                               alt={draft.title || 'Product'}
                               className="w-12 h-12 rounded-md object-cover"
                               onError={() => setBrokenThumbnails(prev => new Set(prev).add(draft.id))}

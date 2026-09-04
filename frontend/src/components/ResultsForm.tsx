@@ -7,21 +7,30 @@ interface ResultsFormProps {
   result: AnalysisResult;
   price?: number;
   onPriceChange?: (price: number) => void;
-  onAspectsChange?: (aspects: Record<string, string | string[]>) => void;
   onAttributesChange?: (attributes: Record<string, any>) => void;
+  onTitleChange?: (title: string) => void;
+  onDescriptionChange?: (description: string) => void;
+  onCategoryChange?: (category: string) => void;
+  onConditionChange?: (condition: string) => void;
 }
 
-export default function ResultsForm({ result, price, onPriceChange, onAspectsChange, onAttributesChange }: ResultsFormProps) {
+export default function ResultsForm({
+  result,
+  price,
+  onPriceChange,
+  onAttributesChange,
+  onTitleChange,
+  onDescriptionChange,
+  onCategoryChange,
+  onConditionChange,
+}: ResultsFormProps) {
   const [title, setTitle] = useState(result.suggested_title);
   const [description, setDescription] = useState(result.suggested_description);
   const [category, setCategory] = useState(result.category || '');
   const [condition, setCondition] = useState(result.condition);
   const [priceInput, setPriceInput] = useState(price?.toFixed(2) || '');
-  const [aspects, setAspects] = useState<Record<string, string | string[]>>(result.ebay_aspects || {});
   const [showReasoning, setShowReasoning] = useState(false);
   const [showDiscrepancies, setShowDiscrepancies] = useState(false);
-  const [showEbayCategory, setShowEbayCategory] = useState(true);  // Expanded by default
-  const [showEbayAspects, setShowEbayAspects] = useState(true);     // Expanded by default
 
   // Update state when result changes
   useEffect(() => {
@@ -29,19 +38,26 @@ export default function ResultsForm({ result, price, onPriceChange, onAspectsCha
     setDescription(result.suggested_description);
     setCategory(result.category || '');
     setCondition(result.condition);
-    setAspects(result.ebay_aspects || {});
   }, [result]);
 
-  const handleAspectChange = (name: string, value: string) => {
-    // Preserve multi-value aspects as arrays: split on comma, trim, drop empties
-    const originalValue = result.ebay_aspects?.[name];
-    const newValue: string | string[] = Array.isArray(originalValue)
-      ? value.split(',').map(v => v.trim()).filter(Boolean)
-      : value;
+  const handleTitleChange = (value: string) => {
+    setTitle(value);
+    if (onTitleChange) onTitleChange(value);
+  };
 
-    const newAspects = { ...aspects, [name]: newValue };
-    setAspects(newAspects);
-    if (onAspectsChange) onAspectsChange(newAspects);
+  const handleDescriptionChange = (value: string) => {
+    setDescription(value);
+    if (onDescriptionChange) onDescriptionChange(value);
+  };
+
+  const handleCategoryChange = (value: string) => {
+    setCategory(value);
+    if (onCategoryChange) onCategoryChange(value);
+  };
+
+  const handleConditionChange = (value: string) => {
+    setCondition(value);
+    if (onConditionChange) onConditionChange(value);
   };
 
   // Update price input when price prop changes
@@ -359,111 +375,10 @@ export default function ResultsForm({ result, price, onPriceChange, onAspectsCha
         )}
       </div>
 
-      {/* eBay Category Section */}
-      {result.ebay_category && (
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-          <button
-            onClick={() => setShowEbayCategory(!showEbayCategory)}
-            className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-              </svg>
-              <h3 className="text-lg font-semibold text-gray-900">eBay Category</h3>
-              <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
-                {Math.round((result.ebay_category.selection_confidence || 0) * 100)}% confidence
-              </span>
-            </div>
-            <svg
-              className={`w-5 h-5 transition-transform ${showEbayCategory ? 'rotate-90' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-
-          {showEbayCategory && (
-            <div className="p-4 border-t border-gray-200 bg-gray-50 space-y-4">
-              <div className="bg-white rounded-lg p-4 border border-indigo-200">
-                <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0 mt-1">
-                    <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
-                      <span className="text-indigo-700 font-bold text-sm">{result.ebay_category.category_id}</span>
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-gray-900 mb-1">{result.ebay_category.category_name}</h4>
-                    <p className="text-sm text-gray-600">{result.ebay_category.category_path}</p>
-                    {result.ebay_category.selection_reasoning && (
-                      <p className="text-sm text-gray-700 mt-2 italic bg-gray-50 p-2 rounded">
-                        {result.ebay_category.selection_reasoning}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* eBay Aspects/Item Specifics Section */}
-      {result.ebay_aspects && Object.keys(result.ebay_aspects).length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-          <button
-            onClick={() => setShowEbayAspects(!showEbayAspects)}
-            className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-              </svg>
-              <h3 className="text-lg font-semibold text-gray-900">eBay Item Specifics</h3>
-              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">
-                {Object.keys(result.ebay_aspects).length} aspects
-              </span>
-            </div>
-            <svg
-              className={`w-5 h-5 transition-transform ${showEbayAspects ? 'rotate-90' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-
-          {showEbayAspects && (
-            <div className="p-4 border-t border-gray-200 bg-gray-50">
-              <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
-                {Object.entries(result.ebay_aspects).map(([name]) => {
-                  const value = aspects[name] ?? '';
-                  const displayValue = Array.isArray(value) ? value.join(', ') : value;
-                  return (
-                    <div key={name} className="grid grid-cols-3 gap-4 items-center">
-                      <label htmlFor={`aspect-${name}`} className="text-sm font-medium text-gray-900">
-                        {name}
-                      </label>
-                      <input
-                        id={`aspect-${name}`}
-                        type="text"
-                        value={displayValue}
-                        onChange={(e) => handleAspectChange(name, e.target.value)}
-                        placeholder="Not found — enter a value"
-                        className="col-span-2 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
-                        aria-label={`${name} value`}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {/* eBay category and item specifics are now edited exclusively in
+          CategoryAspectsSection (rendered separately by the parent page) -
+          this used to duplicate that editor here with no way to reconcile
+          the two, so user edits made in one silently vanished in the other. */}
 
       {/* Product Attributes Display */}
       <AttributesDisplay result={result} onAttributesChange={onAttributesChange} />
@@ -484,7 +399,7 @@ export default function ResultsForm({ result, price, onPriceChange, onAspectsCha
         <textarea
           id="title"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => handleTitleChange(e.target.value)}
           rows={2}
           className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
           aria-label="Listing title"
@@ -502,7 +417,7 @@ export default function ResultsForm({ result, price, onPriceChange, onAspectsCha
         <textarea
           id="description"
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
+          onChange={(e) => handleDescriptionChange(e.target.value)}
           rows={8}
           className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
           aria-label="Product description"
@@ -519,7 +434,7 @@ export default function ResultsForm({ result, price, onPriceChange, onAspectsCha
             id="category"
             type="text"
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(e) => handleCategoryChange(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
             placeholder="e.g., Electronics"
             aria-label="Product category"
@@ -533,7 +448,7 @@ export default function ResultsForm({ result, price, onPriceChange, onAspectsCha
           <select
             id="condition"
             value={condition}
-            onChange={(e) => setCondition(e.target.value)}
+            onChange={(e) => handleConditionChange(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
             aria-label="Product condition"
           >

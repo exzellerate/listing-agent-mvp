@@ -129,6 +129,10 @@ class AnalysisResponse(BaseModel):
     ebay_category: Optional[Dict[str, Any]] = Field(None, description="LLM-selected eBay category with alternatives")
     ebay_aspects: Optional[Dict[str, Any]] = Field(None, description="LLM-predicted aspect values from image analysis")
 
+    # Image URLs (persistent, server-hosted) - populated after upload/storage
+    image_urls: List[str] = Field(default_factory=list, description="Server-hosted URLs of all uploaded images")
+    thumbnail_urls: List[str] = Field(default_factory=list, description="Small UI-thumbnail URLs, parallel to image_urls")
+
 
 class CompetitorListing(BaseModel):
     """Model for a competitor's listing."""
@@ -200,7 +204,13 @@ class CreateDraftRequest(BaseModel):
     # Additional data
     features: Optional[List[str]] = Field(None, description="Product features")
     keywords: Optional[List[str]] = Field(None, description="Search keywords")
-    image_paths: Optional[List[str]] = Field(None, description="Image file paths")
+    image_paths: Optional[List[str]] = Field(None, description="DEPRECATED - use image_urls")
+    image_urls: Optional[List[str]] = Field(None, description="Persistent server-hosted image URLs")
+    thumbnail_urls: Optional[List[str]] = Field(None, description="Small UI-thumbnail URLs, parallel to image_urls")
+    ebay_category: Optional[Dict[str, Any]] = Field(None, description="eBay category details (category_id, category_name, category_path)")
+    ebay_aspects: Optional[Dict[str, Any]] = Field(None, description="eBay item specifics/aspects {aspect_name: value}")
+    ebay_category_suggestions: Optional[List[Dict[str, Any]]] = Field(None, description="eBay category recommendations")
+    suggested_category_id: Optional[str] = Field(None, description="Top suggested eBay category ID")
     extra_data: Optional[Dict[str, Any]] = Field(None, description="Platform-specific metadata")
     notes: Optional[str] = Field(None, description="User's private notes")
 
@@ -225,7 +235,13 @@ class UpdateDraftRequest(BaseModel):
     # Additional data
     features: Optional[List[str]] = Field(None, description="Updated features")
     keywords: Optional[List[str]] = Field(None, description="Updated keywords")
-    image_paths: Optional[List[str]] = Field(None, description="Updated image paths")
+    image_paths: Optional[List[str]] = Field(None, description="DEPRECATED - use image_urls")
+    image_urls: Optional[List[str]] = Field(None, description="Updated persistent image URLs")
+    thumbnail_urls: Optional[List[str]] = Field(None, description="Updated thumbnail URLs")
+    ebay_category: Optional[Dict[str, Any]] = Field(None, description="Updated eBay category details")
+    ebay_aspects: Optional[Dict[str, Any]] = Field(None, description="Updated eBay item specifics/aspects")
+    ebay_category_suggestions: Optional[List[Dict[str, Any]]] = Field(None, description="Updated eBay category recommendations")
+    suggested_category_id: Optional[str] = Field(None, description="Updated top suggested eBay category ID")
     extra_data: Optional[Dict[str, Any]] = Field(None, description="Updated metadata")
     notes: Optional[str] = Field(None, description="Updated notes")
 
@@ -255,7 +271,13 @@ class DraftListingResponse(BaseModel):
     # Additional data
     features: Optional[List[str]] = Field(None, description="Product features")
     keywords: Optional[List[str]] = Field(None, description="Search keywords")
-    image_paths: Optional[List[str]] = Field(None, description="Image file paths")
+    image_paths: Optional[List[str]] = Field(None, description="DEPRECATED - use image_urls")
+    image_urls: Optional[List[str]] = Field(None, description="Persistent server-hosted image URLs")
+    thumbnail_urls: Optional[List[str]] = Field(None, description="Small UI-thumbnail URLs, parallel to image_urls")
+    ebay_category: Optional[Dict[str, Any]] = Field(None, description="eBay category details (category_id, category_name, category_path)")
+    ebay_aspects: Optional[Dict[str, Any]] = Field(None, description="eBay item specifics/aspects {aspect_name: value}")
+    ebay_category_suggestions: Optional[List[Dict[str, Any]]] = Field(None, description="eBay category recommendations")
+    suggested_category_id: Optional[str] = Field(None, description="Top suggested eBay category ID")
     extra_data: Optional[Dict[str, Any]] = Field(None, description="Platform-specific metadata")
     notes: Optional[str] = Field(None, description="User's private notes")
 
@@ -275,7 +297,8 @@ class DraftListingSummary(BaseModel):
     brand: Optional[str] = Field(None, description="Brand")
     condition: Optional[str] = Field(None, description="Item condition")
     category: Optional[str] = Field(None, description="Category")
-    image_paths: Optional[List[str]] = Field(None, description="Product image paths")
+    image_paths: Optional[List[str]] = Field(None, description="Product image URLs (full-size, used as thumbnail source)")
+    thumbnail_urls: Optional[List[str]] = Field(None, description="Small UI-thumbnail URLs, preferred over image_paths when present")
     created_at: datetime = Field(..., description="When draft was created")
     updated_at: datetime = Field(..., description="Last update time")
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { AnalysisResult, PricingData } from '../types';
+import type { AnalysisResult, PricingData, EbayCategory } from '../types';
 import EbayListingWizard from './EbayListingWizard';
 
 interface EbayPostingSectionProps {
@@ -9,6 +9,13 @@ interface EbayPostingSectionProps {
   imageFiles?: File[];
   imageUrls?: string[];
   editedItemSpecifics?: Record<string, string | string[]>;
+  // Edited values from ResultsForm/CategoryAspectsSection - preferred over
+  // the original result.* AI output whenever the user has edited them, so
+  // the wizard always posts what the user actually sees/typed.
+  editedTitle?: string;
+  editedDescription?: string;
+  editedCondition?: string;
+  editedEbayCategory?: EbayCategory;
 }
 
 interface EbayAuthStatus {
@@ -30,7 +37,22 @@ interface EbayListingStatus {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-export function EbayPostingSection({ result, pricingData, analysisId, imageFiles = [], imageUrls: imageUrlsProp, editedItemSpecifics }: EbayPostingSectionProps) {
+export function EbayPostingSection({
+  result,
+  pricingData,
+  analysisId,
+  imageFiles = [],
+  imageUrls: imageUrlsProp,
+  editedItemSpecifics,
+  editedTitle,
+  editedDescription,
+  editedCondition,
+  editedEbayCategory,
+}: EbayPostingSectionProps) {
+  const effectiveTitle = editedTitle || result.suggested_title;
+  const effectiveDescription = editedDescription || result.suggested_description;
+  const effectiveCondition = editedCondition || result.condition;
+  const effectiveEbayCategory = editedEbayCategory || result.ebay_category;
   const [authStatus, setAuthStatus] = useState<EbayAuthStatus | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [listingStatus, setListingStatus] = useState<EbayListingStatus | null>(null);
@@ -233,7 +255,7 @@ export function EbayPostingSection({ result, pricingData, analysisId, imageFiles
             <div className="space-y-2 text-sm">
               <div>
                 <span className="font-medium text-gray-700">Title:</span>
-                <p className="text-gray-600 mt-1">{result.suggested_title}</p>
+                <p className="text-gray-600 mt-1">{effectiveTitle}</p>
               </div>
               <div>
                 <span className="font-medium text-gray-700">Price:</span>
@@ -243,7 +265,7 @@ export function EbayPostingSection({ result, pricingData, analysisId, imageFiles
               </div>
               <div>
                 <span className="font-medium text-gray-700">Condition:</span>
-                <p className="text-gray-600 mt-1">{result.condition || 'Used - Excellent'}</p>
+                <p className="text-gray-600 mt-1">{effectiveCondition || 'Used - Excellent'}</p>
               </div>
             </div>
           </div>
@@ -355,16 +377,19 @@ export function EbayPostingSection({ result, pricingData, analysisId, imageFiles
         </div>
       )}
 
-      {/* Wizard */}
+      {/* Wizard - keyed on open/closed so it fully remounts each time it
+          opens, instead of reusing stale categoryId/itemSpecifics/currentStep
+          state from a previous open within the same session. */}
       <EbayListingWizard
+        key={wizardOpen ? 'open' : 'closed'}
         isOpen={wizardOpen}
         onClose={() => setWizardOpen(false)}
         productData={{
-          title: result.suggested_title,
-          description: result.suggested_description,
+          title: effectiveTitle,
+          description: effectiveDescription,
           images: imageUrls,
           price: pricingData?.statistics?.suggested_price || 50.0,
-          condition: result.condition || 'USED_EXCELLENT',
+          condition: effectiveCondition || 'USED_EXCELLENT',
           // AI-generated product data for category recommendations
           product_name: result.product_name,
           brand: result.brand,
@@ -372,7 +397,7 @@ export function EbayPostingSection({ result, pricingData, analysisId, imageFiles
           ebay_category_keywords: result.ebay_category_keywords
         }}
         analysisId={analysisId}
-        ebayCategory={result.ebay_category}
+        ebayCategory={effectiveEbayCategory}
         ebayAspects={editedItemSpecifics || result.ebay_aspects}
         onSuccess={(listingId) => {
           setWizardOpen(false);
