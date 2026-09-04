@@ -1,24 +1,21 @@
 import { useState, useEffect } from 'react';
 import type { AnalysisResult, FormattedAspect } from '../types';
+import { getCategoryItemSpecifics, APIError, type EbayCategoryItemSpecific } from '../services/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+interface SelectedEbayCategory {
+  category_id: string;
+  category_name: string;
+  category_path: string;
+}
 
 interface CategoryAspectsSectionProps {
   result: AnalysisResult;
+  onCategoryChange?: (category: SelectedEbayCategory) => void;
+  onAspectsChange?: (aspects: Record<string, string | string[]>) => void;
 }
 
 interface AspectValues {
   [aspectName: string]: string | string[];
-}
-
-// eBay API response format for item specifics
-interface EbayItemSpecific {
-  name: string;
-  cardinality: 'SINGLE' | 'MULTI';
-  usage: 'REQUIRED' | 'RECOMMENDED' | 'OPTIONAL';
-  values?: string[];
-  max_values?: number;
-  constraint?: 'SELECTION_ONLY' | 'FREE_TEXT';
 }
 
 // Category suggestion format for display
@@ -45,7 +42,7 @@ interface FormattedAspectsData {
   };
 }
 
-export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) {
+export function CategoryAspectsSection({ result, onCategoryChange, onAspectsChange }: CategoryAspectsSectionProps) {
   // Build category suggestions from result.ebay_category (primary + alternatives)
   const categorySuggestions: CategorySuggestion[] = [];
 
@@ -93,14 +90,16 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
   console.log('🔍 CategoryAspectsSection - primaryCategoryId:', primaryCategoryId);
   console.log('🔍 CategoryAspectsSection - ebay_aspects:', result.ebay_aspects);
 
-  if (!hasCategories) {
-    console.log('CategoryAspectsSection - No categories found, returning null');
-    return null;
-  }
+  // Note: the "no categories -> render null" check is deliberately placed
+  // AFTER all hooks below (not here), so every render calls the same hooks
+  // in the same order even when `result` changes from having categories to
+  // not having them while this component stays mounted (e.g. switching
+  // between analyses/drafts) - bailing out here would violate the Rules of
+  // Hooks in that case.
 
   // Transform eBay API response to FormattedAspect format
   const transformApiResponse = (
-    apiAspects: EbayItemSpecific[],
+    apiAspects: EbayCategoryItemSpecific[],
     categoryName: string
   ): FormattedAspectsData => {
     const required: FormattedAspect[] = [];
@@ -157,23 +156,7 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
 
       try {
         console.log(`🔄 Fetching item specifics for category: ${selectedCategoryId}`);
-        const response = await fetch(
-          `${API_BASE_URL}/api/ebay/categories/${selectedCategoryId}/item-specifics`
-        );
-
-        if (!response.ok) {
-          if (response.status === 404) {
-            console.log('Item specifics endpoint not available - skipping');
-            setFetchedAspects(null);
-            setLoadingAspects(false);
-            return;
-          }
-          const errorData = await response.json();
-          throw new Error(errorData.detail || 'Failed to fetch item specifics');
-        }
-
-        const data = await response.json();
-        const apiAspects: EbayItemSpecific[] = data.item_specifics || [];
+        const apiAspects = await getCategoryItemSpecifics(selectedCategoryId);
 
         // Get category name from suggestions
         const category = categorySuggestions.find(c => c.category_id === selectedCategoryId);
@@ -185,6 +168,11 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
         setFetchedAspects(formatted);
 
       } catch (err: any) {
+        if (err instanceof APIError && err.statusCode === 404) {
+          console.log('Item specifics endpoint not available - skipping');
+          setFetchedAspects(null);
+          return;
+        }
         console.error('Failed to fetch item specifics:', err);
         setAspectsError(err.message || 'Failed to load item specifics');
         setFetchedAspects(null);
@@ -299,12 +287,41 @@ export function CategoryAspectsSection({ result }: CategoryAspectsSectionProps) 
     // TODO: In Phase 2, we'll fetch aspects for this category if not already loaded
   };
 
+  // Report the selected category (including the initial default selection,
+  // not just user-driven changes) so the parent's "current draft state"
+  // always matches what's actually shown here.
+  useEffect(() => {
+    if (!selectedCategoryId || !onCategoryChange) return;
+    const category = categorySuggestions.find(c => c.category_id === selectedCategoryId);
+    if (category) {
+      onCategoryChange({
+        category_id: category.category_id,
+        category_name: category.category_name,
+        category_path: category.category_path
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategoryId]);
+
   const handleAspectChange = (aspectName: string, value: string | string[]) => {
     setAspectValues(prev => ({
       ...prev,
       [aspectName]: value
     }));
   };
+
+  // Report aspect values on every change, including prepopulation from AI
+  // predictions, so the parent always has the current, complete set.
+  useEffect(() => {
+    if (onAspectsChange) {
+      onAspectsChange(aspectValues);
+    }
+  }, [aspectValues, onAspectsChange]);
+
+  if (!hasCategories) {
+    console.log('CategoryAspectsSection - No categories found, returning null');
+    return null;
+  }
 
   const renderAspectInput = (aspect: FormattedAspect) => {
     const value = aspectValues[aspect.name] || (aspect.multi_select ? [] : '');

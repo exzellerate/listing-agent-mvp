@@ -143,6 +143,8 @@ export interface AnalysisResult {
   analysis_id?: number;
   // Server-hosted image URLs from analysis
   image_urls?: string[];
+  // Small UI-thumbnail URLs, parallel to image_urls
+  thumbnail_urls?: string[];
   // eBay category recommendations
   ebay_category_suggestions?: CategoryRecommendation[];
   // eBay category and aspects (new integrated workflow)
@@ -300,7 +302,14 @@ export interface DraftListing {
   model_number: string | null;
   features: string[] | null;
   keywords: string[] | null;
+  /** @deprecated use image_urls */
   image_paths: string[] | null;
+  image_urls: string[] | null;
+  thumbnail_urls: string[] | null;
+  ebay_category: EbayCategory | null;
+  ebay_aspects: Record<string, string | string[]> | null;
+  ebay_category_suggestions: CategoryRecommendation[] | null;
+  suggested_category_id: string | null;
   extra_data: Record<string, any> | null;
   notes: string | null;
   created_at: string;
@@ -317,6 +326,7 @@ export interface DraftListingSummary {
   condition: string | null;
   category: string | null;
   image_paths: string[] | null;
+  thumbnail_urls: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -336,10 +346,19 @@ export interface CreateDraftRequest {
   model_number?: string;
   features?: string[];
   keywords?: string[];
+  /** @deprecated use image_urls */
   image_paths?: string[];
+  image_urls?: string[];
+  thumbnail_urls?: string[];
+  ebay_category?: EbayCategory;
+  ebay_aspects?: Record<string, string | string[]>;
+  ebay_category_suggestions?: CategoryRecommendation[];
+  suggested_category_id?: string;
   extra_data?: Record<string, any>;
   notes?: string;
 }
+
+export type UpdateDraftRequest = Partial<CreateDraftRequest>;
 
 // Listing Management Types
 export interface ListingMetrics {

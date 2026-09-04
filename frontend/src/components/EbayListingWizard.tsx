@@ -3,8 +3,7 @@ import { X, ChevronLeft, ChevronRight, Check, AlertCircle } from 'lucide-react';
 import SmartAspectForm from './SmartAspectForm';
 import BusinessPoliciesSelector from './BusinessPoliciesSelector';
 import { EbayCategory } from '../types';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { createEbayListing } from '../services/api';
 
 interface WizardStep {
   number: number;
@@ -212,19 +211,17 @@ export default function EbayListingWizard({
         formDataToSend.append('item_specifics', JSON.stringify(formData.itemSpecifics));
       }
 
-      // Submit listing to backend
-      const response = await fetch(`${API_BASE_URL}/api/ebay/listings/create`, {
-        method: 'POST',
-        body: formDataToSend
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to create listing');
+      // Send the images the wizard actually displayed/validated, so what the
+      // user saw and what gets posted to eBay are always the same data
+      // instead of the backend silently re-deriving a (possibly different)
+      // image list from analysis_id alone.
+      if (formData.images && formData.images.length > 0) {
+        formDataToSend.append('image_urls', JSON.stringify(formData.images));
       }
 
-      const result = await response.json();
-      onSuccess(result.listing_id);
+      // Submit listing to backend
+      const result = await createEbayListing(formDataToSend);
+      onSuccess(result.listing_id.toString());
       onClose();
     } catch (err: any) {
       setErrors({ publish: err.message || 'Failed to publish listing' });

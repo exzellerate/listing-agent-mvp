@@ -640,9 +640,17 @@ class EbayListingService:
         if listing.quantity < 1:
             errors.append("Quantity must be at least 1")
 
-        # Category validation (if provided)
-        if listing.category_id and not listing.category_id.isdigit():
+        # Category validation
+        if not listing.category_id:
+            errors.append("An eBay category is required before publishing")
+        elif not listing.category_id.isdigit():
             errors.append("Invalid category ID format")
+
+        # Image validation - catch this here (before any eBay API calls) rather
+        # than letting it silently produce an imageless listing that only fails
+        # later at offer-creation/publish.
+        if not listing.image_urls:
+            errors.append("At least one image is required")
 
         if errors:
             error_msg = "; ".join(errors)
