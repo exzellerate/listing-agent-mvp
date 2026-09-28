@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AlertCircle, Loader2, Sparkles, CheckCircle } from 'lucide-react';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { getCategoryItemSpecifics, APIError } from '../services/api';
 
 interface ItemSpecific {
   name: string;
@@ -61,30 +60,18 @@ export default function SmartAspectForm({
     setSpecificsError(null);
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/ebay/categories/${categoryId}/item-specifics`
-      );
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          console.log('Item specifics endpoint not available - skipping');
-          setItemSpecifics([]);
-          setSpecificsError(null);
-          setLoadingSpecifics(false);
-          return;
-        }
-
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to fetch item specifics');
-      }
-
-      const data = await response.json();
-      setItemSpecifics(data.item_specifics || []);
+      const specifics = await getCategoryItemSpecifics(categoryId);
+      setItemSpecifics(specifics);
     } catch (err: any) {
-      console.error('Failed to fetch item specifics:', err);
-      if (!err.message?.includes('404')) {
-        setSpecificsError(err.message || 'Failed to load item specifics for this category');
+      if (err instanceof APIError && err.statusCode === 404) {
+        console.log('Item specifics endpoint not available - skipping');
+        setItemSpecifics([]);
+        setSpecificsError(null);
+        return;
       }
+
+      console.error('Failed to fetch item specifics:', err);
+      setSpecificsError(err.message || 'Failed to load item specifics for this category');
       setItemSpecifics([]);
     } finally {
       setLoadingSpecifics(false);

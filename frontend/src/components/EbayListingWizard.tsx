@@ -219,6 +219,19 @@ export default function EbayListingWizard({
         formDataToSend.append('image_urls', JSON.stringify(formData.images));
       }
 
+      // Send the business policy the user selected/created in the Policies
+      // step, so publishing actually uses it instead of silently falling
+      // back to an env-var or auto-created default.
+      if (formData.shippingPolicyId) {
+        formDataToSend.append('shipping_policy_id', formData.shippingPolicyId);
+      }
+      if (formData.paymentPolicyId) {
+        formDataToSend.append('payment_policy_id', formData.paymentPolicyId);
+      }
+      if (formData.returnPolicyId) {
+        formDataToSend.append('return_policy_id', formData.returnPolicyId);
+      }
+
       // Submit listing to backend
       const result = await createEbayListing(formDataToSend);
       onSuccess(result.listing_id.toString());

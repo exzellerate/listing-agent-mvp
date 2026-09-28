@@ -319,6 +319,11 @@ class EbayListing(Base):
     shipping_width = Column(Float, nullable=True, comment="Package width in inches")
     shipping_height = Column(Float, nullable=True, comment="Package height in inches")
 
+    # Business policies (selected or created by the user in the eBay wizard)
+    shipping_policy_id = Column(String(100), nullable=True, comment="eBay fulfillment policy ID selected/created in wizard")
+    payment_policy_id = Column(String(100), nullable=True, comment="eBay payment policy ID selected/created in wizard")
+    return_policy_id = Column(String(100), nullable=True, comment="eBay return policy ID selected/created in wizard")
+
     # Status tracking
     status = Column(
         SQLEnum(ListingStatus),

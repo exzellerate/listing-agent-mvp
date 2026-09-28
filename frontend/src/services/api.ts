@@ -875,6 +875,300 @@ export async function createEbayListing(formData: FormData): Promise<CreateEbayL
 
 
 // ============================================================================
+// EBAY BUSINESS POLICIES API
+// ============================================================================
+
+export interface BusinessPolicy {
+  policyId: string;
+  name: string;
+  description?: string;
+  shippingOptions?: Array<{
+    shippingServiceCode?: string;
+    rateType?: string;
+    shippingCost?: { value?: string; currency?: string };
+  }>;
+  categoryTypes?: Array<{ name: string }>;
+}
+
+export interface BusinessPoliciesResponse {
+  fulfillment_policies: BusinessPolicy[];
+  payment_policies: BusinessPolicy[];
+  return_policies: BusinessPolicy[];
+}
+
+/**
+ * Fetch all business policies (fulfillment, payment, return) for the
+ * authenticated user. Previously called directly from
+ * BusinessPoliciesSelector.tsx with a raw fetch() and no Authorization
+ * header, which silently 401'd against this require_auth-protected route.
+ */
+export interface EbayAuthUrlResponse {
+  authorization_url: string;
+  state: string;
+}
+
+export interface EbayAuthStatusResponse {
+  authenticated: boolean;
+  expires_at?: string;
+  expired?: boolean;
+  environment: string;
+  is_production: boolean;
+}
+
+export async function getEbayAuthUrl(): Promise<EbayAuthUrlResponse> {
+  try {
+    const authHeaders = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/api/ebay/auth/url`, {
+      method: 'GET',
+      headers: authHeaders,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.detail || 'Failed to get eBay authorization URL',
+        response.status,
+        errorData.detail
+      );
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+
+    throw new APIError(
+      `Failed to get eBay authorization URL: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      500
+    );
+  }
+}
+
+export async function getEbayAuthStatus(): Promise<EbayAuthStatusResponse> {
+  try {
+    const authHeaders = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/api/ebay/auth/status`, {
+      method: 'GET',
+      headers: authHeaders,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.detail || 'Failed to check eBay authentication status',
+        response.status,
+        errorData.detail
+      );
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+
+    throw new APIError(
+      `Failed to check eBay authentication status: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      500
+    );
+  }
+}
+
+export async function exchangeEbayAuthCode(code: string, state?: string | null): Promise<{ success: boolean; expires_at: string }> {
+  try {
+    const authHeaders = await getAuthHeaders();
+    const formData = new FormData();
+    formData.append('code', code);
+    if (state) {
+      formData.append('state', state);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/ebay/auth/callback`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.detail || 'Failed to exchange eBay authorization code',
+        response.status,
+        errorData.detail
+      );
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+
+    throw new APIError(
+      `Failed to exchange eBay authorization code: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      500
+    );
+  }
+}
+
+export async function revokeEbayAuth(): Promise<void> {
+  try {
+    const authHeaders = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/api/ebay/auth/revoke`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.detail || 'Failed to disconnect from eBay',
+        response.status,
+        errorData.detail
+      );
+    }
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+
+    throw new APIError(
+      `Failed to disconnect from eBay: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      500
+    );
+  }
+}
+
+export async function getBusinessPolicies(): Promise<BusinessPoliciesResponse> {
+  try {
+    const authHeaders = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/api/ebay/business-policies`, {
+      method: 'GET',
+      headers: authHeaders,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.detail || 'Failed to fetch business policies',
+        response.status,
+        errorData.detail
+      );
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+
+    throw new APIError(
+      `Failed to fetch business policies: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      500
+    );
+  }
+}
+
+export interface CreateFulfillmentPolicyRequest {
+  name: string;
+  handling_time_days?: number;
+  free_shipping?: boolean;
+  shipping_cost?: number;
+}
+
+export interface CreatePaymentPolicyRequest {
+  name: string;
+  immediate_pay_required?: boolean;
+}
+
+export interface CreateReturnPolicyRequest {
+  name: string;
+  returns_accepted?: boolean;
+  return_period_days?: number;
+  refund_method?: string;
+  return_shipping_payer?: string;
+}
+
+async function postPolicy<TRequest>(path: string, request: TRequest): Promise<BusinessPolicy> {
+  try {
+    const headers = await createHeaders('application/json');
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.detail || 'Failed to create policy',
+        response.status,
+        errorData.detail
+      );
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+
+    throw new APIError(
+      `Failed to create policy: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      500
+    );
+  }
+}
+
+export async function createFulfillmentPolicy(request: CreateFulfillmentPolicyRequest): Promise<BusinessPolicy> {
+  return postPolicy('/api/ebay/policies/fulfillment', request);
+}
+
+export async function createPaymentPolicy(request: CreatePaymentPolicyRequest): Promise<BusinessPolicy> {
+  return postPolicy('/api/ebay/policies/payment', request);
+}
+
+export async function createReturnPolicy(request: CreateReturnPolicyRequest): Promise<BusinessPolicy> {
+  return postPolicy('/api/ebay/policies/return', request);
+}
+
+/**
+ * Some eBay accounts (common on fresh Sandbox accounts) aren't opted into
+ * the Business Policies program yet, so every policy call - read or
+ * write - fails with "User is not eligible for Business Policy" until
+ * this runs once. Call it, then retry whatever policy call failed.
+ */
+export async function optInToBusinessPolicies(): Promise<void> {
+  try {
+    const headers = await createHeaders('application/json');
+    const response = await fetch(`${API_BASE_URL}/api/ebay/policies/opt-in`, {
+      method: 'POST',
+      headers,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.detail || 'Failed to enable Business Policies',
+        response.status,
+        errorData.detail
+      );
+    }
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+
+    throw new APIError(
+      `Failed to enable Business Policies: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      500
+    );
+  }
+}
+
+
+// ============================================================================
 // LISTING MANAGEMENT API
 // ============================================================================
 

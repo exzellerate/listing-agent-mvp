@@ -106,7 +106,10 @@ class EbayOAuthService:
 
         params = {
             "client_id": self.client_id,
-            "redirect_uri": self.redirect_uri,
+            # eBay's OAuth endpoints take the registered RuName here, not the
+            # literal callback URL (EBAY_REDIRECT_URI is only used by the
+            # frontend to know where eBay will actually redirect the browser).
+            "redirect_uri": self.ru_name,
             "response_type": "code",
             "scope": scope_string,
             "state": state
@@ -164,7 +167,7 @@ class EbayOAuthService:
         data = {
             "grant_type": "authorization_code",
             "code": authorization_code,
-            "redirect_uri": self.redirect_uri
+            "redirect_uri": self.ru_name
         }
 
         try:
