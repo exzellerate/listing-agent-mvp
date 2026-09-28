@@ -38,7 +38,7 @@ Two clean, separate environments — local dev never auto-deploys anywhere, prod
 ### Local dev
 - Fully local: `uvicorn` (port 8000) + `vite` (port 5173) on your machine, nothing deployed.
 - **Database**: SQLite (`backend/listing_agent.db`) — leave `DATABASE_URL` unset in `backend/.env`, `database.py` falls back automatically.
-- **eBay**: `EBAY_ENV=SANDBOX` with a separate Sandbox eBay app registration (own Client ID/Secret/RuName — see `backend/.env`'s commented backup section for the production pair). `EBAY_REDIRECT_URI=http://localhost:5173/ebay/callback` (matches Vite's dev port). Sandbox business policy IDs are separate from production's — fetch them from https://www.sandbox.ebay.com/sh/ovw if needed.
+- **eBay**: `EBAY_ENV=SANDBOX` with a separate Sandbox eBay app registration (own Client ID/Secret/RuName — see `backend/.env`'s commented backup section for the production pair). `EBAY_REDIRECT_URI=https://localhost:5173/ebay/callback` (matches Vite's dev port). eBay's OAuth RuName only accepts `https://` redirect URLs, so `vite.config.ts` runs the dev server over local HTTPS via `@vitejs/plugin-basic-ssl` (self-signed — accept the one-time browser warning); the RuName's registered accepted URL in the eBay Developer Portal must match this exactly. Sandbox business policy IDs are separate from production's — fetch them from https://www.sandbox.ebay.com/sh/ovw if needed.
 - **Image storage**: a dedicated R2 **dev** bucket, separate from production's bucket and API token (see "Setting up the R2 dev bucket" below). If `R2_*` vars are left blank, falls back to local disk (`backend/uploads/`) automatically — fine for quick testing, images just won't survive a restart.
 - **Anthropic API key / Clerk**: shared with production (same key/instance) — not environment-split today.
 - `frontend/.env`'s `VITE_API_URL` defaults to `http://localhost:8000` for this reason.
@@ -67,13 +67,16 @@ Two clean, separate environments — local dev never auto-deploys anywhere, prod
 | `backend/services/ebay/media.py` | eBay Media API image uploads |
 | `backend/services/auth.py` | Clerk JWT verification — `get_current_user` (optional) and `require_auth` (enforced) |
 | `backend/models.py` | Pydantic request/response models |
-| `backend/requirements.txt` | Python deps — includes psycopg2-binary, slowapi, boto3 |
-| `frontend/src/pages/UploadPage.tsx` | Main upload & analysis UI |
+| `backend/requirements.txt` | Python deps — includes psycopg2-binary, slowapi, boto3, Pillow |
+| `backend/utils/image_resize.py` | Produces a downscaled analysis copy (fits Anthropic's inline size limit) and a small UI thumbnail from every uploaded image |
+| `frontend/src/pages/UploadPage.tsx` | Main upload & analysis UI, also handles loading/editing/re-saving a draft |
+| `frontend/src/pages/DraftsPage.tsx` | Drafts list page |
 | `frontend/src/pages/TermsPage.tsx` | Terms & Conditions (public, standalone) |
-| `frontend/src/components/ResultsForm.tsx` | Editable results form |
-| `frontend/src/components/EbayListingWizard.tsx` | Step-by-step eBay posting (27 KB) |
-| `frontend/src/components/CategoryAspectsSection.tsx` | Category-specific item specifics (22 KB) |
-| `frontend/src/services/api.ts` | Frontend HTTP client with Clerk auth (27 KB) |
+| `frontend/src/components/Sidebar.tsx` | Left nav — narrow Material Design "navigation rail" (icon-over-label, ~96px wide) |
+| `frontend/src/components/ResultsForm.tsx` | Editable results form (title/description/category/condition/price; eBay category+aspects live in `CategoryAspectsSection` instead) |
+| `frontend/src/components/CategoryAspectsSection.tsx` | eBay category picker + item specifics editor — the single source of truth for both, reports edits up via `onCategoryChange`/`onAspectsChange` |
+| `frontend/src/components/EbayListingWizard.tsx` | Step-by-step eBay posting (27 KB) — re-mounts on each open (keyed) to avoid stale state |
+| `frontend/src/services/api.ts` | Frontend HTTP client with Clerk auth (27 KB) — **always add new backend calls here**, never a raw `fetch()` in a component (see Known Issues) |
 | `build.sh` | Build script for Render (builds frontend, copies to backend/static) |
 | `render.yaml` | Render Blueprint deployment config |
 | `.neon` | Neon CLI context file (orgId + projectId, safe to commit) |
@@ -107,7 +110,8 @@ npx neon env pull  # writes DATABASE_URL etc. to .env.local
 - **SPA routing**: Catch-all `/{full_path:path}` route at end of main.py serves `index.html` for React Router paths, but returns 404 for `api/` and `uploads/` paths.
 - **Auth**: `require_auth` (raises 401) is enforced on all sensitive routes. `get_current_user` (returns None if unauthenticated) is kept for truly optional cases. No `default_user` fallback anywhere.
 - **User isolation**: `user_id` (Clerk user ID, e.g. `user_2abc...`) is stored on `ProductAnalysis`, `DraftListing`, and `EbayCredentials`. All queries filter by the authenticated user's ID.
-- **Image storage**: `save_uploaded_image()` uploads to R2 when all `R2_*` env vars are set, falls back to local `backend/uploads/` for dev. The `/uploads/{filename}` route still works as a local fallback.
+- **Image storage**: `save_uploaded_image()` uploads to R2 when all `R2_*` env vars are set, falls back to local `backend/uploads/` for dev. The `/uploads/{filename}` route still works as a local fallback. Every upload also produces two derivatives via `backend/utils/image_resize.py`: a downscaled copy actually sent to Claude Vision (`resize_for_analysis`, capped ~1568px longest side, JPEG) and a small `_thumb` file for fast UI loading (`generate_thumbnail`, ~400px). Both return `(bytes, content_type)` — **always use the returned content_type, not the original file's**, since the bytes are re-encoded to JPEG; pairing JPEG bytes with a stale `image/webp`/`image/png` content type produces an invalid image that Anthropic's API will reject.
+- **Drafts are self-contained**: `DraftListing` owns its own `image_urls`, `thumbnail_urls`, `ebay_category`, `ebay_aspects`, `ebay_category_suggestions`, `suggested_category_id` (set at save time from the frontend's current edited state). It no longer depends on a live join through `analysis_id` → `ProductAnalysis` to show images/category/aspects on reload — that join is now only a fallback for drafts saved before this existed. `PUT /api/drafts/{id}` (used by "Save Changes" on a loaded draft) is a real, wired-up update path, not dead code.
 - **Rate limiting**: slowapi with IP-based key. `/api/analyze` and `/api/analyze-stream` (10/min), `/api/research-pricing` (20/min), `/api/ebay/listings/create` (5/min). The `request: Request` param must be present on rate-limited routes.
 - **Multi-image analysis**: each image analyzed independently, then cross-referenced for consistency
 - **Learning system**: perceptual image hashing for similarity, confidence tracking, reduces API costs
@@ -130,6 +134,7 @@ npx neon env pull  # writes DATABASE_URL etc. to .env.local
 - Per-user data isolation via Clerk user ID on all database tables
 - Rate limiting active on high-cost routes
 - eBay OAuth redirect URIs configured for both Render URL and custom domain
+- Drafts flow (save → reload → edit → re-save → post to eBay) overhauled 2026-09-04 — see `RELEASE.md` for the full writeup. Sidebar redesigned the same day as a narrow Material Design nav rail.
 
 ## Known Issues & Gotchas
 - `main.py` is very large (3,700+ lines) — may benefit from splitting into routers
@@ -141,8 +146,10 @@ npx neon env pull  # writes DATABASE_URL etc. to .env.local
 - **Clerk `needs_client_trust` error**: Disable bot detection in Clerk dashboard, or update `@clerk/clerk-react` to latest
 - **Rate-limited routes**: Must include `request: Request` as the first parameter AND `@limiter.limit()` must go immediately before `async def` (after the `@app.post/get` decorator). If you rename the Pydantic body param to something other than its type (e.g. `body: PricingRequest`), update all references in the function body accordingly.
 - **R2 fallback**: If R2 env vars are missing, images fall back to local disk and will be lost on redeploy. Always set all five R2 vars in Render dashboard.
-- **Database migrations**: No Alembic set up. Schema changes require dropping and recreating tables (acceptable while on free Neon tier with no critical user data). Add Alembic before schema changes become painful.
+- **Database migrations**: Still no Alembic, but no longer "drop and recreate" either — production has real user data now. New **nullable, additive** columns go in two places: the SQLAlchemy model in `database_models.py`, and the `_ADDITIVE_COLUMNS` dict in `database.py`. `run_migrations()` (called from `init_db()` on every startup) diffs each listed table's actual columns via SQLAlchemy's inspector and issues `ALTER TABLE ADD COLUMN` for whatever's missing — idempotent, safe to run every deploy, works on both SQLite (local) and Postgres (prod/Neon). This only ever adds columns; it never drops/renames/retypes one — do that kind of change by hand with real care (and a backup) if it's ever needed.
 - **EbayCredentials.user_id**: Has `unique=True` constraint — one eBay account per Clerk user. This is intentional.
+- **FastAPI `response_model` silently drops undeclared fields**: if a route has `response_model=SomeModel` and the handler returns a dict/object with a key `SomeModel` doesn't declare, that key is silently stripped before the response is serialized — no error, no warning. This bit us once already (`AnalysisResponse` was missing `image_urls`, so it was being set correctly server-side but never reached the frontend). When adding a new field to what an endpoint returns, add it to the Pydantic response model first, not just to the dict/object being returned.
+- **Frontend: never call the backend with a raw `fetch()` in a component.** Every call must go through `frontend/src/services/api.ts` (or at minimum use its `getAuthHeaders()`), because nearly every backend route enforces Clerk auth via `require_auth`. We found and fixed two components (`EbayListingWizard.tsx`'s listing-creation call, `CategoryAspectsSection.tsx`'s item-specifics fetch) that used a bare `fetch()` with no Authorization header and were silently 401'ing — the UI just looked like the feature didn't work, no visible error. Several other files still construct their own `API_BASE_URL` and fetch directly (`BusinessPoliciesSelector.tsx`, `ItemSpecificsForm.tsx`, `SmartAspectForm.tsx`, parts of `EbayPostingSection.tsx`/`DraftsPage.tsx`/`ConnectionsPage.tsx`) — not confirmed broken, but worth auditing before assuming they work.
 
 ## Environment Variables
 This lists production's variable set (Render dashboard). For local dev's equivalents (Sandbox eBay, dev R2 bucket, SQLite), see "Environments" above and `backend/.env.example`.
