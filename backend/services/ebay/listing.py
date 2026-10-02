@@ -275,7 +275,7 @@ class EbayListingService:
             "name": "Default Shipping Policy",
             "marketplaceId": "EBAY_US",
             "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
-            "handlingTime": {"value": 1, "unit": "BUSINESS_DAY"},
+            "handlingTime": {"value": 1, "unit": "DAY"},
             "shippingOptions": [
                 {
                     "costType": "FLAT_RATE",

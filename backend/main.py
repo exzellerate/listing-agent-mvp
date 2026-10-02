@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
@@ -89,7 +89,17 @@ app = FastAPI(
 # Rate limiter (IP-based; all sensitive routes also require auth)
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please wait a moment and try again."},
+        headers={"Retry-After": "60"}
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Configure CORS
 app.add_middleware(
@@ -3228,7 +3238,7 @@ async def create_payment_policy(
         500: {"model": ErrorResponse}
     }
 )
-@limiter.limit("5/minute")
+@limiter.limit("15/minute")
 async def opt_in_to_business_policies(
     request: Request,
     db: Session = Depends(get_db),
@@ -3311,6 +3321,14 @@ async def get_business_policies(
         return policies
 
     except Exception as e:
+        if "20403" in str(e) or "not eligible for business policy" in str(e).lower():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Your eBay account isn't opted in to eBay Business Policies yet. "
+                    'Click "Enable Business Policies" below, then try again.'
+                )
+            )
         logger.error(f"Failed to get business policies: {e}")
         raise HTTPException(
             status_code=500,

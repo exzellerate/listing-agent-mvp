@@ -1051,9 +1051,9 @@ export async function getBusinessPolicies(): Promise<BusinessPoliciesResponse> {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new APIError(
-        errorData.detail || 'Failed to fetch business policies',
+        (errorData.detail || errorData.error) || 'Failed to fetch business policies',
         response.status,
-        errorData.detail
+        errorData.detail || errorData.error
       );
     }
 
@@ -1102,9 +1102,9 @@ async function postPolicy<TRequest>(path: string, request: TRequest): Promise<Bu
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new APIError(
-        errorData.detail || 'Failed to create policy',
+        (errorData.detail || errorData.error) || 'Failed to create policy',
         response.status,
-        errorData.detail
+        errorData.detail || errorData.error
       );
     }
 
@@ -1139,7 +1139,7 @@ export async function createReturnPolicy(request: CreateReturnPolicyRequest): Pr
  * write - fails with "User is not eligible for Business Policy" until
  * this runs once. Call it, then retry whatever policy call failed.
  */
-export async function optInToBusinessPolicies(): Promise<void> {
+export async function optInToBusinessPolicies(): Promise<{ verified: boolean }> {
   try {
     const headers = await createHeaders('application/json');
     const response = await fetch(`${API_BASE_URL}/api/ebay/policies/opt-in`, {
@@ -1150,11 +1150,14 @@ export async function optInToBusinessPolicies(): Promise<void> {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new APIError(
-        errorData.detail || 'Failed to enable Business Policies',
+        (errorData.detail || errorData.error) || 'Failed to enable Business Policies',
         response.status,
-        errorData.detail
+        errorData.detail || errorData.error
       );
     }
+
+    const data = await response.json().catch(() => ({}));
+    return { verified: data.verified !== false };
   } catch (error) {
     if (error instanceof APIError) {
       throw error;

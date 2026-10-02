@@ -379,15 +379,6 @@ export default function EbayListingWizard({
   );
 
   const renderStep3 = () => {
-    if (!analysisId) {
-      return (
-        <div className="flex items-center gap-2 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-700">
-          <AlertCircle className="w-5 h-5 flex-shrink-0" />
-          <span className="text-sm">Analysis ID is required for AI-powered item specifics.</span>
-        </div>
-      );
-    }
-
     return (
       <div className="space-y-6">
         <SmartAspectForm
@@ -410,19 +401,19 @@ export default function EbayListingWizard({
         selectedPaymentPolicyId={formData.paymentPolicyId}
         selectedReturnPolicyId={formData.returnPolicyId}
         onPoliciesChange={(policies) => {
-          setFormData({
-            ...formData,
+          setFormData(prev => ({
+            ...prev,
             shippingPolicyId: policies.fulfillmentPolicyId,
             paymentPolicyId: policies.paymentPolicyId,
             returnPolicyId: policies.returnPolicyId
-          });
+          }));
           // Clear errors when policies are selected
-          setErrors({
-            ...errors,
+          setErrors(prev => ({
+            ...prev,
             shipping: '',
             return: '',
             payment: ''
-          });
+          }));
         }}
         errors={{
           fulfillment: errors.shipping,

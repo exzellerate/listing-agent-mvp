@@ -10,6 +10,7 @@ for a name collision before a user-driven create.
 """
 
 import os
+import time
 import logging
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
@@ -23,11 +24,22 @@ logger = logging.getLogger(__name__)
 class EbayPolicyError(Exception):
     """User-facing error from an eBay business-policy API call."""
 
-    def __init__(self, message: str, status_code: int = 400, ebay_error_id: Optional[int] = None):
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 400,
+        ebay_error_id: Optional[int] = None,
+        raw_message: Optional[str] = None
+    ):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
         self.ebay_error_id = ebay_error_id
+        self.raw_message = raw_message or message
+
+    @property
+    def is_not_opted_in(self) -> bool:
+        return "not eligible for business policy" in self.raw_message.lower()
 
 
 class EbayPoliciesService:
@@ -73,11 +85,7 @@ class EbayPoliciesService:
         lowered = (message or "").lower()
         if "already exists" in lowered or "duplicate" in lowered:
             friendly = f"A policy with this name already exists. Choose a different name."
-        elif (
-            "not eligible for business policy" in lowered
-            or ebay_error_id == 20403
-            or ("opt" in lowered and ("program" in lowered or "business polic" in lowered))
-        ):
+        elif "not eligible for business policy" in lowered:
             friendly = (
                 "Your eBay account isn't opted in to eBay Business Policies yet. "
                 'Click "Enable Business Policies" below, then try again.'
@@ -88,7 +96,12 @@ class EbayPoliciesService:
             friendly = message or "eBay rejected this policy. Please check the details and try again."
 
         logger.warning(f"eBay policy API error ({response.status_code}, errorId={ebay_error_id}): {message}")
-        raise EbayPolicyError(friendly, status_code=400 if response.status_code < 500 else 502, ebay_error_id=ebay_error_id)
+        raise EbayPolicyError(
+            friendly,
+            status_code=400 if response.status_code < 500 else 502,
+            ebay_error_id=ebay_error_id,
+            raw_message=message
+        )
 
     def _post(self, path: str, payload: dict, user_id: str) -> dict:
         headers = self._auth_headers(user_id)
@@ -165,7 +178,7 @@ class EbayPoliciesService:
             "name": name,
             "marketplaceId": marketplace_id,
             "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
-            "handlingTime": {"value": handling_time_days, "unit": "BUSINESS_DAY"},
+            "handlingTime": {"value": handling_time_days, "unit": "DAY"},
             "shippingOptions": [
                 {
                     "costType": "FLAT_RATE",
@@ -223,8 +236,31 @@ class EbayPoliciesService:
     # ------------------------------------------------------------------
 
     def opt_in_to_business_policies(self, user_id: str) -> dict:
+        """Opt in (idempotent), then poll until eBay actually accepts policy calls.
+
+        Returns {"verified": bool}. verified=False means opt-in was accepted but
+        eBay hasn't activated it yet; the caller should ask the user to retry shortly.
+        """
         payload = {"programType": "SELLING_POLICY_MANAGEMENT"}
-        return self._post("/sell/account/v1/program/opt_in", payload, user_id)
+        try:
+            self._post("/sell/account/v1/program/opt_in", payload, user_id)
+        except EbayPolicyError as e:
+            raw = e.raw_message.lower()
+            already = "already" in raw and ("opt" in raw or "enrolled" in raw or "program" in raw)
+            if not already:
+                raise
+            logger.info(f"User {user_id} already opted in to Business Policies")
+
+        for attempt in range(5):
+            try:
+                self.list_fulfillment_policies(user_id)
+                return {"verified": True}
+            except EbayPolicyError as e:
+                if not e.is_not_opted_in:
+                    raise
+                logger.info(f"Opt-in not active yet for {user_id} (attempt {attempt + 1}/5)")
+                time.sleep(1.5)
+        return {"verified": False}
 
 
 def get_ebay_policies_service(db: Session, oauth_service: EbayOAuthService) -> EbayPoliciesService:

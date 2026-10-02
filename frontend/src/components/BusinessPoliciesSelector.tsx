@@ -18,7 +18,11 @@ import {
 function isOptInError(message: string | null | undefined): boolean {
   if (!message) return false;
   const lowered = message.toLowerCase();
-  return lowered.includes('not eligible for business policy') || lowered.includes("isn't opted in");
+  return (
+    lowered.includes('not eligible for business policy') ||
+    lowered.includes("isn't opted in") ||
+    lowered.includes('20403')
+  );
 }
 
 type PolicyType = 'fulfillment' | 'payment' | 'return';
@@ -117,15 +121,25 @@ export default function BusinessPoliciesSelector({
       const data = await getBusinessPolicies();
       setPolicies(data);
 
-      // Auto-select if only one policy of each type exists
-      if (data.fulfillment_policies.length === 1 && !selectedFulfillmentPolicyId) {
-        handlePolicyChange('fulfillment', data.fulfillment_policies[0].policyId);
-      }
-      if (data.payment_policies.length === 1 && !selectedPaymentPolicyId) {
-        handlePolicyChange('payment', data.payment_policies[0].policyId);
-      }
-      if (data.return_policies.length === 1 && !selectedReturnPolicyId) {
-        handlePolicyChange('return', data.return_policies[0].policyId);
+      // Auto-select if only one policy of each type exists (single update so
+      // the three selections don't overwrite each other via stale props)
+      const autoSelected = {
+        fulfillmentPolicyId:
+          selectedFulfillmentPolicyId ||
+          (data.fulfillment_policies.length === 1 ? data.fulfillment_policies[0].policyId : ''),
+        paymentPolicyId:
+          selectedPaymentPolicyId ||
+          (data.payment_policies.length === 1 ? data.payment_policies[0].policyId : ''),
+        returnPolicyId:
+          selectedReturnPolicyId ||
+          (data.return_policies.length === 1 ? data.return_policies[0].policyId : ''),
+      };
+      if (
+        autoSelected.fulfillmentPolicyId !== selectedFulfillmentPolicyId ||
+        autoSelected.paymentPolicyId !== selectedPaymentPolicyId ||
+        autoSelected.returnPolicyId !== selectedReturnPolicyId
+      ) {
+        onPoliciesChange(autoSelected);
       }
     } catch (err: any) {
       console.error('Failed to fetch business policies:', err);
@@ -143,7 +157,17 @@ export default function BusinessPoliciesSelector({
   const handleOptIn = async (retryCreateType?: PolicyType) => {
     setOptingIn(true);
     try {
-      await optInToBusinessPolicies();
+      const { verified } = await optInToBusinessPolicies();
+      if (!verified) {
+        const pending =
+          'Business Policies was enabled, but eBay is still activating it. Please wait a minute and try again.';
+        if (retryCreateType) {
+          setCreateError(pending);
+        } else {
+          setError(pending);
+        }
+        return;
+      }
       if (retryCreateType) {
         setCreateError(null);
         await handleCreateSubmit(retryCreateType);
