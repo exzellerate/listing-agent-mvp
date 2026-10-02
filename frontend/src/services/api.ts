@@ -1057,7 +1057,17 @@ export async function getBusinessPolicies(): Promise<BusinessPoliciesResponse> {
       );
     }
 
-    return await response.json();
+    // eBay names the ID field per policy type (fulfillmentPolicyId, ...);
+    // the UI reads a uniform `policyId`, so normalize here.
+    const data = await response.json();
+    const withId = (list: any[] | undefined, key: string): BusinessPolicy[] =>
+      (list || []).map(p => ({ ...p, policyId: p.policyId || p[key] }));
+    return {
+      ...data,
+      fulfillment_policies: withId(data.fulfillment_policies, 'fulfillmentPolicyId'),
+      payment_policies: withId(data.payment_policies, 'paymentPolicyId'),
+      return_policies: withId(data.return_policies, 'returnPolicyId'),
+    };
   } catch (error) {
     if (error instanceof APIError) {
       throw error;

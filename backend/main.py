@@ -2434,9 +2434,14 @@ async def create_ebay_listing(
             try:
                 import json
                 parsed = json.loads(image_urls)
-                if isinstance(parsed, list) and parsed:
-                    resolved_image_urls = parsed
-                    logger.info(f"Using {len(resolved_image_urls)} client-supplied image URLs")
+                if isinstance(parsed, list):
+                    # blob:/data: URLs only exist in the user's browser - unusable server-side
+                    usable = [u for u in parsed if isinstance(u, str) and u.startswith(("http://", "https://"))]
+                    if len(usable) < len(parsed):
+                        logger.warning(f"Dropped {len(parsed) - len(usable)} non-HTTP client image URL(s)")
+                    if usable:
+                        resolved_image_urls = usable
+                        logger.info(f"Using {len(resolved_image_urls)} client-supplied image URLs")
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse image_urls JSON: {e}")
 

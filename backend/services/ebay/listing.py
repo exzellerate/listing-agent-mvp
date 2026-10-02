@@ -1764,11 +1764,15 @@ class EbayListingService:
             if hasattr(e, 'response') and e.response is not None:
                 try:
                     error_data = e.response.json()
+                except ValueError:
+                    error_data = None
+                if error_data:
                     logger.error(f"eBay error response: {error_data}")
-                    error_msg = error_data.get('errors', [{}])[0].get('message', str(e))
+                    errors = error_data.get('errors') or [{}]
+                    error_msg = "; ".join(
+                        err.get('longMessage') or err.get('message') or str(e) for err in errors
+                    )
                     raise Exception(f"eBay offer creation error: {error_msg}")
-                except:
-                    pass
             raise Exception(f"Failed to create offer: {str(e)}")
 
     def _publish_listing(self, offer_id: str, user_id: str) -> str:
