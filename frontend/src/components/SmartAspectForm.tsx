@@ -12,7 +12,7 @@ interface ItemSpecific {
 }
 
 interface SmartAspectFormProps {
-  analysisId: number;
+  analysisId?: number;
   categoryId: string;
   categoryName: string;
   initialValues?: Record<string, string | string[]>;
