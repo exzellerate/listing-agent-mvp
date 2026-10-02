@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
@@ -26,7 +26,8 @@ from models import (
     CreateDraftRequest, UpdateDraftRequest, DraftListingResponse, DraftListingSummary,
     ListingsResponse, SyncResponse, ListingSummary, ListingMetrics,
     FeedbackRequest, FeedbackResponse, CategoryRecommendation,
-    CategoryAspectRequest, CategoryAspectResponse, PredictedAspect, CategoryAspectAnalysis
+    CategoryAspectRequest, CategoryAspectResponse, PredictedAspect, CategoryAspectAnalysis,
+    CreateFulfillmentPolicyRequest, CreatePaymentPolicyRequest, CreateReturnPolicyRequest
 )
 from services.claude_analyzer import get_analyzer
 from services.pricing_researcher import get_pricing_researcher
@@ -88,13 +89,24 @@ app = FastAPI(
 # Rate limiter (IP-based; all sensitive routes also require auth)
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please wait a moment and try again."},
+        headers={"Retry-After": "60"}
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "https://localhost:5173",  # Vite dev server over local HTTPS (needed for eBay OAuth callback)
         "http://localhost:3000",
         "https://exzellerate.com",
         "https://www.exzellerate.com",
@@ -2370,6 +2382,9 @@ async def create_ebay_listing(
     shipping_height: Optional[float] = Form(None, description="Package height in inches"),
     item_specifics: Optional[str] = Form(None, description="JSON string of item specifics"),
     image_urls: Optional[str] = Form(None, description="JSON array of image URLs to use for this listing"),
+    shipping_policy_id: Optional[str] = Form(None, description="eBay fulfillment policy ID selected/created in wizard"),
+    payment_policy_id: Optional[str] = Form(None, description="eBay payment policy ID selected/created in wizard"),
+    return_policy_id: Optional[str] = Form(None, description="eBay return policy ID selected/created in wizard"),
     db: Session = Depends(get_db),
     user: ClerkUser = Depends(require_auth)
 ):
@@ -2466,7 +2481,10 @@ async def create_ebay_listing(
             shipping_width=shipping_width,
             shipping_height=shipping_height,
             image_urls=image_urls,
-            item_specifics=parsed_item_specifics
+            item_specifics=parsed_item_specifics,
+            shipping_policy_id=shipping_policy_id,
+            payment_policy_id=payment_policy_id,
+            return_policy_id=return_policy_id
         )
 
         return {
@@ -2939,18 +2957,75 @@ async def get_fulfillment_policies(
 
     try:
         from services.ebay.oauth import get_ebay_oauth_service
-        # TODO: Create policies service
-        # For now, return placeholder
-        return {
-            "policies": [],
-            "message": "Policy retrieval not yet implemented"
-        }
+        from services.ebay.policies import get_ebay_policies_service
+
+        oauth_service = get_ebay_oauth_service(db)
+        policies_service = get_ebay_policies_service(db, oauth_service)
+        return {"policies": policies_service.list_fulfillment_policies(user_id)}
 
     except Exception as e:
         logger.error(f"Failed to get fulfillment policies: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get fulfillment policies: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/ebay/policies/fulfillment",
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        500: {"model": ErrorResponse}
+    }
+)
+@limiter.limit("10/minute")
+async def create_fulfillment_policy(
+    request: Request,
+    body: CreateFulfillmentPolicyRequest,
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
+):
+    """
+    Create a new eBay fulfillment (shipping) policy for the authenticated user.
+
+    Args:
+        body: Policy fields (name, handling time, shipping cost/free shipping)
+        db: Database session
+        user: Authenticated user
+
+    Returns:
+        The created policy as returned by eBay
+
+    Raises:
+        HTTPException: If creation fails
+    """
+    user_id = user.id
+    logger.info(f"Creating fulfillment policy '{body.name}' for user: {user_id}")
+
+    try:
+        from services.ebay.oauth import get_ebay_oauth_service
+        from services.ebay.policies import get_ebay_policies_service, EbayPolicyError
+
+        oauth_service = get_ebay_oauth_service(db)
+        policies_service = get_ebay_policies_service(db, oauth_service)
+        policy = policies_service.create_fulfillment_policy(
+            user_id=user_id,
+            name=body.name,
+            handling_time_days=body.handling_time_days,
+            free_shipping=body.free_shipping,
+            shipping_cost=body.shipping_cost,
+            marketplace_id=body.marketplace_id
+        )
+        return policy
+
+    except EbayPolicyError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Failed to create fulfillment policy: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create fulfillment policy: {str(e)}"
         )
 
 
@@ -2983,18 +3058,76 @@ async def get_return_policies(
 
     try:
         from services.ebay.oauth import get_ebay_oauth_service
-        # TODO: Create policies service
-        # For now, return placeholder
-        return {
-            "policies": [],
-            "message": "Policy retrieval not yet implemented"
-        }
+        from services.ebay.policies import get_ebay_policies_service
+
+        oauth_service = get_ebay_oauth_service(db)
+        policies_service = get_ebay_policies_service(db, oauth_service)
+        return {"policies": policies_service.list_return_policies(user_id)}
 
     except Exception as e:
         logger.error(f"Failed to get return policies: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get return policies: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/ebay/policies/return",
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        500: {"model": ErrorResponse}
+    }
+)
+@limiter.limit("10/minute")
+async def create_return_policy(
+    request: Request,
+    body: CreateReturnPolicyRequest,
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
+):
+    """
+    Create a new eBay return policy for the authenticated user.
+
+    Args:
+        body: Policy fields (name, returns accepted, return period, refund method, who pays return shipping)
+        db: Database session
+        user: Authenticated user
+
+    Returns:
+        The created policy as returned by eBay
+
+    Raises:
+        HTTPException: If creation fails
+    """
+    user_id = user.id
+    logger.info(f"Creating return policy '{body.name}' for user: {user_id}")
+
+    try:
+        from services.ebay.oauth import get_ebay_oauth_service
+        from services.ebay.policies import get_ebay_policies_service, EbayPolicyError
+
+        oauth_service = get_ebay_oauth_service(db)
+        policies_service = get_ebay_policies_service(db, oauth_service)
+        policy = policies_service.create_return_policy(
+            user_id=user_id,
+            name=body.name,
+            returns_accepted=body.returns_accepted,
+            return_period_days=body.return_period_days,
+            refund_method=body.refund_method,
+            return_shipping_payer=body.return_shipping_payer,
+            marketplace_id=body.marketplace_id
+        )
+        return policy
+
+    except EbayPolicyError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Failed to create return policy: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create return policy: {str(e)}"
         )
 
 
@@ -3027,18 +3160,125 @@ async def get_payment_policies(
 
     try:
         from services.ebay.oauth import get_ebay_oauth_service
-        # TODO: Create policies service
-        # For now, return placeholder
-        return {
-            "policies": [],
-            "message": "Policy retrieval not yet implemented"
-        }
+        from services.ebay.policies import get_ebay_policies_service
+
+        oauth_service = get_ebay_oauth_service(db)
+        policies_service = get_ebay_policies_service(db, oauth_service)
+        return {"policies": policies_service.list_payment_policies(user_id)}
 
     except Exception as e:
         logger.error(f"Failed to get payment policies: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get payment policies: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/ebay/policies/payment",
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        500: {"model": ErrorResponse}
+    }
+)
+@limiter.limit("10/minute")
+async def create_payment_policy(
+    request: Request,
+    body: CreatePaymentPolicyRequest,
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
+):
+    """
+    Create a new eBay payment policy for the authenticated user.
+
+    Args:
+        body: Policy fields (name, immediate payment requirement)
+        db: Database session
+        user: Authenticated user
+
+    Returns:
+        The created policy as returned by eBay
+
+    Raises:
+        HTTPException: If creation fails
+    """
+    user_id = user.id
+    logger.info(f"Creating payment policy '{body.name}' for user: {user_id}")
+
+    try:
+        from services.ebay.oauth import get_ebay_oauth_service
+        from services.ebay.policies import get_ebay_policies_service, EbayPolicyError
+
+        oauth_service = get_ebay_oauth_service(db)
+        policies_service = get_ebay_policies_service(db, oauth_service)
+        policy = policies_service.create_payment_policy(
+            user_id=user_id,
+            name=body.name,
+            immediate_pay_required=body.immediate_pay_required,
+            marketplace_id=body.marketplace_id
+        )
+        return policy
+
+    except EbayPolicyError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Failed to create payment policy: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create payment policy: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/ebay/policies/opt-in",
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        500: {"model": ErrorResponse}
+    }
+)
+@limiter.limit("15/minute")
+async def opt_in_to_business_policies(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
+):
+    """
+    Opt the authenticated user's eBay account into the Business Policies
+    program. Some eBay accounts (common on fresh Sandbox accounts) return
+    "User is not eligible for Business Policy" (errorId 20403) on every
+    policy call - read or write - until this runs once.
+
+    Args:
+        db: Database session
+        user: Authenticated user
+
+    Returns:
+        eBay's opt-in response (usually empty on success)
+
+    Raises:
+        HTTPException: If opt-in fails
+    """
+    user_id = user.id
+    logger.info(f"Opting user into eBay Business Policies: {user_id}")
+
+    try:
+        from services.ebay.oauth import get_ebay_oauth_service
+        from services.ebay.policies import get_ebay_policies_service, EbayPolicyError
+
+        oauth_service = get_ebay_oauth_service(db)
+        policies_service = get_ebay_policies_service(db, oauth_service)
+        result = policies_service.opt_in_to_business_policies(user_id)
+        return {"success": True, **result}
+
+    except EbayPolicyError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Failed to opt in to Business Policies: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to opt in to Business Policies: {str(e)}"
         )
 
 
@@ -3081,6 +3321,14 @@ async def get_business_policies(
         return policies
 
     except Exception as e:
+        if "20403" in str(e) or "not eligible for business policy" in str(e).lower():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Your eBay account isn't opted in to eBay Business Policies yet. "
+                    'Click "Enable Business Policies" below, then try again.'
+                )
+            )
         logger.error(f"Failed to get business policies: {e}")
         raise HTTPException(
             status_code=500,

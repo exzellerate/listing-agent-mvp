@@ -79,7 +79,10 @@ class EbayListingService:
         shipping_width: Optional[float] = None,
         shipping_height: Optional[float] = None,
         image_urls: Optional[List[str]] = None,
-        item_specifics: Optional[Dict[str, Any]] = None
+        item_specifics: Optional[Dict[str, Any]] = None,
+        shipping_policy_id: Optional[str] = None,
+        payment_policy_id: Optional[str] = None,
+        return_policy_id: Optional[str] = None
     ) -> EbayListing:
         """
         Create a new eBay listing (orchestrator method).
@@ -100,6 +103,9 @@ class EbayListingService:
             shipping_width: Package width in inches (for calculated shipping)
             shipping_height: Package height in inches (for calculated shipping)
             image_urls: List of image URLs (HTTPS URLs from analysis)
+            shipping_policy_id: eBay fulfillment policy ID selected/created by the user
+            payment_policy_id: eBay payment policy ID selected/created by the user
+            return_policy_id: eBay return policy ID selected/created by the user
 
         Returns:
             Created EbayListing object
@@ -129,7 +135,10 @@ class EbayListingService:
             shipping_width=shipping_width,
             shipping_height=shipping_height,
             image_urls=image_urls,  # Store image URLs from analysis
-            item_specifics=item_specifics  # Store user-provided item specifics
+            item_specifics=item_specifics,  # Store user-provided item specifics
+            shipping_policy_id=shipping_policy_id,
+            payment_policy_id=payment_policy_id,
+            return_policy_id=return_policy_id
         )
         self.db.add(listing)
         self.db.commit()
@@ -266,7 +275,7 @@ class EbayListingService:
             "name": "Default Shipping Policy",
             "marketplaceId": "EBAY_US",
             "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
-            "handlingTime": {"value": 1, "unit": "BUSINESS_DAY"},
+            "handlingTime": {"value": 1, "unit": "DAY"},
             "shippingOptions": [
                 {
                     "costType": "FLAT_RATE",
@@ -1578,16 +1587,21 @@ class EbayListingService:
         payment_policies = self._get_payment_policies(user_id)
         return_policies = self._get_return_policies(user_id)
 
-        # Use first available policy of each type, or env defaults
+        # Prefer the policy the user selected/created in the wizard, then the
+        # env-var override, then whatever eBay returns first (which itself
+        # falls back to an auto-created default via _get_*_policies above).
         fulfillment_policy_id = (
+            listing.shipping_policy_id or
             self.default_shipping_policy_id or
             (fulfillment_policies[0].get("fulfillmentPolicyId") if fulfillment_policies else None)
         )
         payment_policy_id = (
+            listing.payment_policy_id or
             self.default_payment_policy_id or
             (payment_policies[0].get("paymentPolicyId") if payment_policies else None)
         )
         return_policy_id = (
+            listing.return_policy_id or
             self.default_return_policy_id or
             (return_policies[0].get("returnPolicyId") if return_policies else None)
         )

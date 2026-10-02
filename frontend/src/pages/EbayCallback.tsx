@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { exchangeEbayAuthCode } from '../services/api';
 
 export default function EbayCallback() {
   const [searchParams] = useSearchParams();
@@ -48,23 +47,7 @@ export default function EbayCallback() {
 
       try {
         // Exchange code for token
-        const formData = new FormData();
-        formData.append('code', code);
-        if (state) {
-          formData.append('state', state);
-        }
-
-        const response = await fetch(`${API_BASE_URL}/api/ebay/auth/callback`, {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.detail || 'Failed to exchange authorization code');
-        }
-
-        await response.json();
+        await exchangeEbayAuthCode(code, state);
 
         setStatus('success');
         setMessage('Successfully connected to eBay! You can close this window.');

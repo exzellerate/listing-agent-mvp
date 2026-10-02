@@ -451,6 +451,35 @@ class EbayAuthStatusResponse(BaseModel):
     expired: bool = Field(default=False, description="Whether token is expired")
 
 
+class CreateFulfillmentPolicyRequest(BaseModel):
+    """Request model for creating an eBay fulfillment (shipping) policy."""
+
+    name: str = Field(..., min_length=1, max_length=65, description="Seller-unique policy name")
+    handling_time_days: int = Field(default=1, ge=0, le=30, description="Handling time in business days")
+    free_shipping: bool = Field(default=False, description="Offer free domestic shipping")
+    shipping_cost: Optional[float] = Field(None, ge=0, le=999, description="Flat domestic shipping cost in USD (ignored if free_shipping)")
+    marketplace_id: str = Field(default="EBAY_US", description="eBay marketplace ID")
+
+
+class CreatePaymentPolicyRequest(BaseModel):
+    """Request model for creating an eBay payment policy."""
+
+    name: str = Field(..., min_length=1, max_length=65, description="Seller-unique policy name")
+    immediate_pay_required: bool = Field(default=False, description="Require immediate payment")
+    marketplace_id: str = Field(default="EBAY_US", description="eBay marketplace ID")
+
+
+class CreateReturnPolicyRequest(BaseModel):
+    """Request model for creating an eBay return policy."""
+
+    name: str = Field(..., min_length=1, max_length=65, description="Seller-unique policy name")
+    returns_accepted: bool = Field(default=True, description="Whether returns are accepted")
+    return_period_days: int = Field(default=30, description="Return window in days (typically 30 or 60)")
+    refund_method: str = Field(default="MONEY_BACK", description="MONEY_BACK or MERCHANDISE_CREDIT")
+    return_shipping_payer: str = Field(default="BUYER", description="BUYER or SELLER")
+    marketplace_id: str = Field(default="EBAY_US", description="eBay marketplace ID")
+
+
 class CreateListingRequest(BaseModel):
     """Request model for creating an eBay listing."""
 

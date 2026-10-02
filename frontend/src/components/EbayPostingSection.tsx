@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { AnalysisResult, PricingData, EbayCategory } from '../types';
 import EbayListingWizard from './EbayListingWizard';
+import { getEbayAuthUrl, getEbayAuthStatus, revokeEbayAuth } from '../services/api';
 
 interface EbayPostingSectionProps {
   result: AnalysisResult;
@@ -34,8 +35,6 @@ interface EbayListingStatus {
   message?: string;
   ebay_url?: string;
 }
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export function EbayPostingSection({
   result,
@@ -83,13 +82,7 @@ export function EbayPostingSection({
   const checkAuthStatus = async () => {
     try {
       setLoadingAuth(true);
-      const response = await fetch(`${API_BASE_URL}/api/ebay/auth/status`);
-
-      if (!response.ok) {
-        throw new Error('Failed to check authentication status');
-      }
-
-      const data = await response.json();
+      const data = await getEbayAuthStatus();
       setAuthStatus(data);
     } catch (err) {
       console.error('Auth status check failed:', err);
@@ -101,13 +94,7 @@ export function EbayPostingSection({
 
   const handleAuthenticate = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/ebay/auth/url`);
-
-      if (!response.ok) {
-        throw new Error('Failed to get authorization URL');
-      }
-
-      const data = await response.json();
+      const data = await getEbayAuthUrl();
 
       // Open eBay OAuth page in new window
       const authWindow = window.open(data.authorization_url, '_blank', 'width=600,height=700');
@@ -144,13 +131,7 @@ export function EbayPostingSection({
     if (!confirmed) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/ebay/auth/revoke`, {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to disconnect eBay account');
-      }
+      await revokeEbayAuth();
 
       // Update auth status
       setAuthStatus({ authenticated: false });

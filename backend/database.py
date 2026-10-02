@@ -61,6 +61,11 @@ _ADDITIVE_COLUMNS = {
         ("ebay_category_suggestions", "JSON"),
         ("suggested_category_id", "VARCHAR(128)"),
     ],
+    "ebay_listings": [
+        ("shipping_policy_id", "VARCHAR(100)"),
+        ("payment_policy_id", "VARCHAR(100)"),
+        ("return_policy_id", "VARCHAR(100)"),
+    ],
 }
 
 

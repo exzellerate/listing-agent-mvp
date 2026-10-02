@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Platform } from '../types';
+import { getEbayAuthUrl, getEbayAuthStatus, revokeEbayAuth } from '../services/api';
 
 interface ConnectionStatus {
   platform: Platform;
@@ -11,8 +12,6 @@ interface ConnectionStatus {
   expired?: boolean;
   gradient: string;
 }
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export default function ConnectionsPage() {
   const [connections, setConnections] = useState<ConnectionStatus[]>([
@@ -41,19 +40,12 @@ export default function ConnectionsPage() {
 
   const checkEbayConnection = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/ebay/auth/status`);
-      if (response.ok) {
-        const data = await response.json();
-        setConnections(prev => prev.map(conn =>
-          conn.platform === 'ebay'
-            ? { ...conn, authenticated: data.authenticated, expires_at: data.expires_at, expired: data.expired, loading: false }
-            : conn
-        ));
-      } else {
-        setConnections(prev => prev.map(conn =>
-          conn.platform === 'ebay' ? { ...conn, loading: false, authenticated: false } : conn
-        ));
-      }
+      const data = await getEbayAuthStatus();
+      setConnections(prev => prev.map(conn =>
+        conn.platform === 'ebay'
+          ? { ...conn, authenticated: data.authenticated, expires_at: data.expires_at, expired: data.expired, loading: false }
+          : conn
+      ));
     } catch (error) {
       console.error('Failed to check eBay connection:', error);
       setConnections(prev => prev.map(conn =>
@@ -65,12 +57,7 @@ export default function ConnectionsPage() {
   const handleConnect = async (platform: Platform) => {
     if (platform === 'ebay') {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/ebay/auth/url`);
-        if (!response.ok) {
-          throw new Error('Failed to get authorization URL');
-        }
-
-        const data = await response.json();
+        const data = await getEbayAuthUrl();
 
         // Open eBay OAuth page in new window
         const authWindow = window.open(data.authorization_url, '_blank', 'width=600,height=700');
@@ -112,12 +99,8 @@ export default function ConnectionsPage() {
       }
 
       try {
-        const response = await fetch(`${API_BASE_URL}/api/ebay/auth/revoke`, { method: 'POST' });
-        if (response.ok) {
-          await checkEbayConnection();
-        } else {
-          alert('Failed to disconnect from eBay. Please try again.');
-        }
+        await revokeEbayAuth();
+        await checkEbayConnection();
       } catch (error) {
         console.error('Failed to disconnect from eBay:', error);
         alert('Failed to disconnect from eBay. Please try again.');
