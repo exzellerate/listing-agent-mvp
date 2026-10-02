@@ -792,7 +792,7 @@ function UploadPage() {
                   pricingData={selectedPrice ? { statistics: { suggested_price: selectedPrice } } as any : undefined}
                   analysisId={result.analysis_id}
                   imageFiles={loadedFromDraft ? [] : selectedFiles}
-                  imageUrls={loadedFromDraft ? (result.image_urls || []) : []}
+                  imageUrls={result.image_urls || []}
                   editedItemSpecifics={getMergedItemSpecifics()}
                   editedTitle={editedTitle}
                   editedDescription={editedDescription}

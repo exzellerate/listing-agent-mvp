@@ -64,18 +64,18 @@ export function EbayPostingSection({
     checkAuthStatus();
   }, []);
 
-  // Convert image files to URLs, or use provided image URLs as fallback
+  // Prefer server-hosted URLs: the backend (and eBay) can't fetch browser-only
+  // blob: URLs. Fall back to local previews only if no hosted URLs exist.
   useEffect(() => {
-    if (imageFiles && imageFiles.length > 0) {
+    if (imageUrlsProp && imageUrlsProp.length > 0) {
+      setImageUrls(imageUrlsProp);
+    } else if (imageFiles && imageFiles.length > 0) {
       const urls = imageFiles.map(file => URL.createObjectURL(file));
       setImageUrls(urls);
 
-      // Cleanup function to revoke object URLs
       return () => {
         urls.forEach(url => URL.revokeObjectURL(url));
       };
-    } else if (imageUrlsProp && imageUrlsProp.length > 0) {
-      setImageUrls(imageUrlsProp);
     }
   }, [imageFiles, imageUrlsProp]);
 
