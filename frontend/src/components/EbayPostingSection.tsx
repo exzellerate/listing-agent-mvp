@@ -17,6 +17,8 @@ interface EbayPostingSectionProps {
   editedDescription?: string;
   editedCondition?: string;
   editedEbayCategory?: EbayCategory;
+  // Fired after the listing is successfully published to eBay.
+  onPublished?: (listingId: string) => void;
 }
 
 interface EbayAuthStatus {
@@ -47,6 +49,7 @@ export function EbayPostingSection({
   editedDescription,
   editedCondition,
   editedEbayCategory,
+  onPublished,
 }: EbayPostingSectionProps) {
   const effectiveTitle = editedTitle || result.suggested_title;
   const effectiveDescription = editedDescription || result.suggested_description;
@@ -388,6 +391,7 @@ export function EbayPostingSection({
             status: 'published',
             message: 'Listing created successfully!'
           });
+          onPublished?.(listingId);
         }}
       />
     </div>
