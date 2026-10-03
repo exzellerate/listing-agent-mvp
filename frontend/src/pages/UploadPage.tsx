@@ -10,6 +10,7 @@ import CorrectionModal, { CorrectionData } from '../components/CorrectionModal';
 import { EbayPostingSection } from '../components/EbayPostingSection';
 import { CategoryAspectsSection } from '../components/CategoryAspectsSection';
 import Layout from '../components/Layout';
+import { useCategoryConditions } from '../hooks/useCategoryConditions';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -39,6 +40,7 @@ function UploadPage() {
   const [editedCategory, setEditedCategory] = useState<string>('');
   const [editedCondition, setEditedCondition] = useState<string>('');
   const [editedEbayCategory, setEditedEbayCategory] = useState<EbayCategory | undefined>(undefined);
+  const conditionState = useCategoryConditions(editedEbayCategory?.category_id, editedCondition, setEditedCondition);
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
   const [correctionAction] = useState<'edited' | 'rejected'>('edited');
   const [savingDraft, setSavingDraft] = useState(false);
@@ -738,6 +740,9 @@ function UploadPage() {
                 onDescriptionChange={setEditedDescription}
                 onCategoryChange={setEditedCategory}
                 onConditionChange={setEditedCondition}
+                conditionValue={editedCondition || undefined}
+                conditionOptions={conditionState.options}
+                conditionNotice={conditionState.notice}
               />
             </div>
 

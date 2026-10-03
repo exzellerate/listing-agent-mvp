@@ -632,7 +632,7 @@ After completing all analysis stages, construct your JSON output in the followin
   "product_name": "string - The Verified Official Name (from Search)",
   "brand": "string or null",
   "category": "string or null",
-  "condition": "string - New, Used - Like New, Used - Good, Used - Fair, or Refurbished",
+  "condition": "string - exactly one of: New, Like New, Used - Excellent, Used - Good, Used - Acceptable, For Parts",
   "color": "string or null",
   "material": "string or null",
   "model_number": "string or null",

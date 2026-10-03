@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useCategoryConditions } from '../hooks/useCategoryConditions';
 import { X, ChevronLeft, ChevronRight, Check, AlertCircle } from 'lucide-react';
 import SmartAspectForm from './SmartAspectForm';
 import BusinessPoliciesSelector from './BusinessPoliciesSelector';
@@ -92,6 +93,16 @@ export default function EbayListingWizard({
     duration: 'GTC' // Good 'Til Cancelled
   });
 
+  const setWizardCondition = useCallback(
+    (condition: string) => setFormData(prev => ({ ...prev, condition })),
+    []
+  );
+  const conditionState = useCategoryConditions(
+    formData.categoryId || ebayCategory?.category_id || undefined,
+    formData.condition,
+    setWizardCondition
+  );
+
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [, setValidationState] = useState<Record<number, boolean>>({});
@@ -104,11 +115,19 @@ export default function EbayListingWizard({
         title: productData.title || prev.title,
         description: productData.description || prev.description,
         images: productData.images || prev.images,
-        price: productData.price || prev.price,
-        condition: productData.condition || prev.condition
+        price: productData.price || prev.price
       }));
     }
   }, [productData]);
+
+  // Seed condition only when the flow's selection actually changes. productData
+  // is a fresh object every parent render, so doing this in the effect above
+  // clobbered the wizard's own snapped/edited condition on each re-render.
+  useEffect(() => {
+    if (productData.condition) {
+      setFormData(prev => ({ ...prev, condition: productData.condition as string }));
+    }
+  }, [productData.condition]);
 
   // Set category from ebayCategory prop when wizard opens
   useEffect(() => {
@@ -330,13 +349,11 @@ export default function EbayListingWizard({
             onChange={(e) => setFormData({ ...formData, condition: e.target.value })}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
-            <option value="NEW">New</option>
-            <option value="LIKE_NEW">Like New</option>
-            <option value="USED_EXCELLENT">Used - Excellent</option>
-            <option value="USED_GOOD">Used - Good</option>
-            <option value="USED_ACCEPTABLE">Used - Acceptable</option>
-            <option value="FOR_PARTS_OR_NOT_WORKING">For Parts or Not Working</option>
+            {conditionState.options.map((o) => (
+              <option key={o.enum} value={o.enum}>{o.label}</option>
+            ))}
           </select>
+          {conditionState.notice && <p className="mt-1 text-xs text-amber-600">{conditionState.notice}</p>}
         </div>
       </div>
 
@@ -542,7 +559,7 @@ export default function EbayListingWizard({
             </div>
             <div>
               <p className="text-sm font-medium text-gray-700">Condition</p>
-              <p className="text-sm text-gray-900 mt-1">{formData.condition.replace(/_/g, ' ')}</p>
+              <p className="text-sm text-gray-900 mt-1">{conditionState.options.find(o => o.enum === formData.condition)?.label ?? formData.condition.replace(/_/g, ' ')}</p>
             </div>
             <div>
               <p className="text-sm font-medium text-gray-700">Quantity</p>
