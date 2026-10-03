@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { AnalysisResult } from '../types';
 import CopyButton from './CopyButton';
 import AttributesDisplay from './AttributesDisplay';
+import { ConditionOption, GENERIC_CONDITION_OPTIONS } from '../utils/conditions';
 
 interface ResultsFormProps {
   result: AnalysisResult;
@@ -12,6 +13,10 @@ interface ResultsFormProps {
   onDescriptionChange?: (description: string) => void;
   onCategoryChange?: (category: string) => void;
   onConditionChange?: (condition: string) => void;
+  /** Controlled value (kept valid by useCategoryConditions in the parent) */
+  conditionValue?: string;
+  conditionOptions?: ConditionOption[];
+  conditionNotice?: string | null;
 }
 
 export default function ResultsForm({
@@ -23,6 +28,9 @@ export default function ResultsForm({
   onDescriptionChange,
   onCategoryChange,
   onConditionChange,
+  conditionValue,
+  conditionOptions = GENERIC_CONDITION_OPTIONS,
+  conditionNotice,
 }: ResultsFormProps) {
   const [title, setTitle] = useState(result.suggested_title);
   const [description, setDescription] = useState(result.suggested_description);
@@ -447,17 +455,19 @@ export default function ResultsForm({
           </label>
           <select
             id="condition"
-            value={condition}
+            value={conditionValue ?? condition}
             onChange={(e) => handleConditionChange(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
             aria-label="Product condition"
           >
-            <option value="New">New</option>
-            <option value="Used - Like New">Used - Like New</option>
-            <option value="Used - Good">Used - Good</option>
-            <option value="Used - Fair">Used - Fair</option>
-            <option value="Refurbished">Refurbished</option>
+            {!conditionOptions.some((o) => o.enum === (conditionValue ?? condition)) && (
+              <option value={conditionValue ?? condition}>{conditionValue ?? condition}</option>
+            )}
+            {conditionOptions.map((o) => (
+              <option key={o.enum} value={o.enum}>{o.label}</option>
+            ))}
           </select>
+          {conditionNotice && <p className="text-xs text-amber-600">{conditionNotice}</p>}
         </div>
 
         <div className="space-y-2">

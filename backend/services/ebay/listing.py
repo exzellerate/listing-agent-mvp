@@ -18,6 +18,7 @@ from database_models import (
 )
 from .oauth import EbayOAuthService
 from .media import EbayMediaService
+from .metadata import get_item_conditions, normalize_condition, snap_condition
 
 logger = logging.getLogger(__name__)
 
@@ -817,8 +818,10 @@ class EbayListingService:
                 ]
             }
         """
+        # conditions=None means "unknown" (eBay unreachable) — never guess a list
         default_result = {
-            "conditions": ["USED_EXCELLENT", "USED_GOOD", "NEW"],
+            "conditions": None,
+            "condition_required": False,
             "item_specifics": []
         }
 
@@ -850,9 +853,16 @@ class EbayListingService:
             data = response.json()
 
             result = {
-                "conditions": [],
+                "conditions": None,
+                "condition_required": False,
                 "item_specifics": []
             }
+
+            # Conditions come from the Metadata API, not the aspects endpoint
+            condition_policy = get_item_conditions(category_id, token)
+            if condition_policy is not None:
+                result["conditions"] = condition_policy["conditions"] or None
+                result["condition_required"] = condition_policy["required"]
 
             # Parse all aspects
             aspects = data.get("aspects", [])
@@ -876,30 +886,19 @@ class EbayListingService:
                 elif max_values:
                     max_vals = 1
 
-                # Special handling for Condition aspect
-                if aspect_name.lower() == "condition":
-                    result["conditions"] = values
-                    logger.info(f"Found {len(values)} valid conditions")
-                else:
-                    # Add as item specific
-                    specific_dict = {
-                        "name": aspect_name,
-                        "required": is_required,
-                        "values": values
-                    }
-                    if max_vals is not None:
-                        specific_dict["max_values"] = max_vals
+                specific_dict = {
+                    "name": aspect_name,
+                    "required": is_required,
+                    "values": values
+                }
+                if max_vals is not None:
+                    specific_dict["max_values"] = max_vals
 
-                    result["item_specifics"].append(specific_dict)
-                    if is_required:
-                        logger.info(f"Required item specific: {aspect_name} (with {len(values)} possible values, max_values={max_vals})")
+                result["item_specifics"].append(specific_dict)
+                if is_required:
+                    logger.info(f"Required item specific: {aspect_name} (with {len(values)} possible values, max_values={max_vals})")
 
-            # Use defaults if no conditions found
-            if not result["conditions"]:
-                logger.info("No condition aspect found, using defaults")
-                result["conditions"] = default_result["conditions"]
-
-            logger.info(f"Category metadata: {len(result['conditions'])} conditions, "
+            logger.info(f"Category metadata: {len(result['conditions'] or [])} conditions, "
                        f"{len(result['item_specifics'])} item specifics "
                        f"({sum(1 for s in result['item_specifics'] if s['required'])} required)")
 
@@ -1160,42 +1159,28 @@ class EbayListingService:
             logger.info(f"Category {listing.category_id} - Item specifics: {len(item_specifics)} total, "
                        f"{sum(1 for s in item_specifics if s['required'])} required")
 
-        # Build inventory item payload
-        # Map condition values to eBay's condition enum
-        # Handles both enum values (from dropdown) and AI-generated text
-        condition_mapping = {
-            # Enum values (from frontend dropdown)
-            "NEW": "NEW",
-            "LIKE_NEW": "LIKE_NEW",
-            "USED_EXCELLENT": "USED_EXCELLENT",
-            "USED_GOOD": "USED_GOOD",
-            "USED_ACCEPTABLE": "USED_ACCEPTABLE",
-            "FOR_PARTS_OR_NOT_WORKING": "FOR_PARTS_OR_NOT_WORKING",
-            # AI-generated text variations
-            "USED - LIKE NEW": "LIKE_NEW",
-            "USED - EXCELLENT": "USED_EXCELLENT",
-            "USED - GOOD": "USED_GOOD",
-            "USED - ACCEPTABLE": "USED_ACCEPTABLE",
-            "EXCELLENT": "USED_EXCELLENT",
-            "GOOD": "USED_GOOD",
-            "LIKE NEW": "LIKE_NEW",
-            "VERY GOOD": "USED_GOOD",
-            "REFURBISHED": "LIKE_NEW",
-            "OPEN BOX": "LIKE_NEW",
-            "PRE-OWNED": "USED_GOOD",
-            "FOR PARTS": "FOR_PARTS_OR_NOT_WORKING",
-        }
-
-        raw_condition = (listing.condition or "").strip().upper()
-        ebay_condition = condition_mapping.get(raw_condition, "USED_EXCELLENT")
+        # Normalize the incoming condition (enum, UI label, or Claude text) to an eBay enum
+        ebay_condition = normalize_condition(listing.condition)
         logger.info(f"Condition mapping: '{listing.condition}' -> '{ebay_condition}'")
+        if not ebay_condition:
+            raise ValueError(
+                f"Unrecognized condition '{listing.condition}'. Please choose a condition for this listing."
+            )
 
-        # If we have valid conditions for this category, verify our condition is valid
-        # If not, use the first valid condition
-        if valid_conditions and ebay_condition not in valid_conditions:
-            logger.warning(f"Condition '{ebay_condition}' not valid for category {listing.category_id}")
-            logger.warning(f"Using first valid condition: {valid_conditions[0]}")
-            ebay_condition = valid_conditions[0]
+        # Validate against the conditions eBay allows for this category.
+        # Snap to the nearest equal-or-worse allowed condition; never silently upgrade.
+        if valid_conditions:
+            allowed = [c["enum"] for c in valid_conditions]
+            snapped = snap_condition(ebay_condition, allowed)
+            if not snapped:
+                raise ValueError(
+                    f"No valid condition for category {listing.category_id} matches '{listing.condition}'. "
+                    f"Allowed: {', '.join(allowed)}"
+                )
+            if snapped != ebay_condition:
+                logger.warning(f"Condition '{ebay_condition}' not valid for category "
+                               f"{listing.category_id}; using '{snapped}'")
+            ebay_condition = snapped
 
         # Build base payload
         payload = {
@@ -1205,7 +1190,6 @@ class EbayListingService:
                 }
             },
             "condition": ebay_condition,
-            "conditionDescription": f"Condition: {ebay_condition.replace('_', ' ').title()}",
             "product": {
                 "title": listing.title[:80],
                 "description": listing.description[:4000] if listing.description else ""

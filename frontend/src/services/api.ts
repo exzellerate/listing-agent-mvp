@@ -1517,3 +1517,23 @@ export async function getCategoryItemSpecifics(
   const data = await response.json();
   return data.item_specifics || [];
 }
+
+export interface CategoryConditionsResponse {
+  category_id: string;
+  condition_required: boolean;
+  conditions: { id: string; enum: string; label: string }[];
+}
+
+/** Conditions eBay allows for a category (Sell Metadata API via backend). */
+export async function getCategoryConditions(categoryId: string): Promise<CategoryConditionsResponse> {
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(
+    `${API_BASE_URL}/api/ebay/categories/${encodeURIComponent(categoryId)}/conditions`,
+    { headers: authHeaders }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new APIError(errorData.detail || 'Failed to fetch category conditions', response.status, errorData.detail);
+  }
+  return await response.json();
+}

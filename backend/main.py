@@ -2283,6 +2283,32 @@ async def revoke_ebay_credentials(
         )
 
 
+@app.get("/api/ebay/categories/{category_id}/conditions")
+async def get_category_conditions(
+    category_id: str,
+    db: Session = Depends(get_db),
+    user: ClerkUser = Depends(require_auth)
+):
+    """Valid item conditions for an eBay category (from the Sell Metadata API)."""
+    from services.ebay.oauth import get_ebay_oauth_service
+    from services.ebay.metadata import get_item_conditions
+
+    oauth_service = get_ebay_oauth_service(db)
+    try:
+        token = oauth_service.get_application_token()
+    except Exception as e:
+        logger.warning(f"No application token for condition lookup: {e}")
+        token = None
+    policy = get_item_conditions(category_id, token) if token else None
+    if policy is None:
+        raise HTTPException(status_code=502, detail="Could not fetch conditions from eBay")
+    return {
+        "category_id": category_id,
+        "conditions": policy["conditions"],
+        "condition_required": policy["required"],
+    }
+
+
 @app.get(
     "/api/ebay/categories/{category_id}/item-specifics",
     responses={
@@ -2345,7 +2371,8 @@ async def get_category_item_specifics(
         return {
             "category_id": category_id,
             "item_specifics": item_specifics,
-            "conditions": metadata.get("conditions", [])
+            "conditions": metadata.get("conditions") or [],
+            "condition_required": metadata.get("condition_required", False)
         }
 
     except HTTPException:
