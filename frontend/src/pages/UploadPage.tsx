@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { ImageIcon } from 'lucide-react';
 import { Platform, AnalysisResult, EbayCategory, CreateDraftRequest } from '../types';
-import { analyzeImagesWithProgress, checkHealth, confirmAnalysis, createDraft, updateDraft, getDraft, APIError } from '../services/api';
+import { analyzeImagesWithProgress, checkHealth, confirmAnalysis, createDraft, updateDraft, getDraft, deleteDraft, APIError } from '../services/api';
 import ImageUpload from '../components/ImageUpload';
 import LoadingState from '../components/LoadingState';
 import ResultsForm from '../components/ResultsForm';
@@ -49,6 +49,9 @@ function UploadPage() {
   // Retained so a loaded draft can be updated in place (PUT) instead of only
   // ever being creatable (POST) - previously parsed from the URL and discarded.
   const [draftId, setDraftId] = useState<number | null>(null);
+  // True once the listing has been posted to eBay; the backing draft is
+  // deleted at that point, so the save-draft controls are hidden.
+  const [published, setPublished] = useState(false);
   // Tracks which loaded-draft image indices failed to load, so a broken/
   // expired URL shows a placeholder instead of a raw browser broken-image
   // icon (matching the pattern already used on the drafts list page).
@@ -293,6 +296,8 @@ function UploadPage() {
     setResult(null);
     setError(null);
     setSelectedPrice(undefined);
+    setPublished(false);
+    setDraftId(null);
   };
 
   const handleStartOverWithConfirmation = () => {
@@ -422,6 +427,20 @@ function UploadPage() {
       setDraftSaveStatus('error');
     } finally {
       setSavingDraft(false);
+    }
+  };
+
+  // A published listing is no longer a draft: remove its draft row so it
+  // drops off the Drafts page. Best-effort - the listing is already live, so
+  // a failed delete is logged rather than surfaced as a failed post.
+  const handlePublished = async () => {
+    setPublished(true);
+    if (!draftId) return;
+    try {
+      await deleteDraft(draftId);
+      setDraftId(null);
+    } catch (err) {
+      console.error('Failed to remove published draft:', err);
     }
   };
 
@@ -675,6 +694,7 @@ function UploadPage() {
                   existing row (PUT) instead of creating a new one; previously
                   this button was hidden entirely once a draft was loaded, so
                   there was no way to persist edits back to it. */}
+              {!published && (
               <button
                 onClick={loadedFromDraft ? handleUpdateDraft : handleSaveAsDraft}
                 disabled={savingDraft}
@@ -697,6 +717,7 @@ function UploadPage() {
                   </>
                 )}
               </button>
+              )}
             </div>
 
             {/* Draft Save Feedback */}
@@ -803,6 +824,7 @@ function UploadPage() {
                   editedDescription={editedDescription}
                   editedCondition={editedCondition}
                   editedEbayCategory={editedEbayCategory}
+                  onPublished={handlePublished}
                 />
               </>
             )}
